@@ -342,6 +342,7 @@ class AccountsServiceImpl(val global: GlobalModule) extends AccountsService {
       otherAccounts <- accountsWithManagers.head.map(_.filter(userId != _))
       _ <- if (current.contains(userId)) setAccount(otherAccounts.headOption) else Future.successful(())
       _ <- storage.flatMap(_.remove(userId)) //TODO pass Id to some sort of clean up service before removing (https://github.com/wireapp/android-project/issues/51)
+      _ <- getZms(userId).map(_.foreach(_.db.dbHelper.close()))
     } yield {}
   }
 
