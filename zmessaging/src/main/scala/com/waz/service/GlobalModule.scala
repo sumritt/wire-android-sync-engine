@@ -79,6 +79,7 @@ trait GlobalModule {
   def audioTranscoder:      AudioTranscoder
   def loaderService:        AssetLoaderService
   def cacheCleanup:         CacheCleaningService
+  def accountsStorage2:     AccountStorage2
   def accountsStorage:      AccountStorage
   def accountsStorageOld:   AccountsStorageOld
   def teamsStorage:         TeamsStorage
@@ -151,6 +152,7 @@ class GlobalModuleImpl(val context:   AContext,
 
   lazy val cacheCleanup                                          = wire[CacheCleaningService]
 
+  lazy val accountsStorage2:     AccountStorage2                 = new AccountStorageImpl2(context, storage.dbHelper.getWritableDatabase, scala.concurrent.ExecutionContext.Implicits.global)
   lazy val accountsStorage:     AccountStorage                   = wire[AccountStorageImpl]
 
   lazy val teamsStorage:        TeamsStorage                     = wire[TeamsStorageImpl]
@@ -203,6 +205,7 @@ class EmptyGlobalModule extends GlobalModule {
   override def audioTranscoder:       AudioTranscoder                                     = ???
   override def loaderService:         AssetLoaderService                                  = ???
   override def cacheCleanup:          CacheCleaningService                                = ???
+  override def accountsStorage2:      AccountStorage2                                     = ???
   override def accountsStorage:       AccountStorage                                      = ???
   override def accountsStorageOld:    AccountsStorageOld                                  = ???
   override def teamsStorage:          TeamsStorage                                        = ???

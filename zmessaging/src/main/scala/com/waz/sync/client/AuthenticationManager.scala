@@ -21,7 +21,7 @@ import com.waz.ZLog._
 import com.waz.api.EmailCredentials
 import com.waz.api.impl.ErrorResponse
 import com.waz.api.impl.ErrorResponse.Cancelled
-import com.waz.content.AccountStorage
+import com.waz.content.AccountStorage2
 import com.waz.model.{AccountData, UserId}
 import com.waz.service.ZMessaging.{accountTag, clock}
 import com.waz.service.tracking.TrackingService
@@ -48,7 +48,7 @@ trait AccessTokenProvider {
  * Manages authentication token, and dispatches login requests when needed.
  * Will retry login request if unsuccessful.
  */
-class AuthenticationManager(id: UserId, accStorage: AccountStorage, client: LoginClient, tracking: TrackingService) extends AccessTokenProvider {
+class AuthenticationManager(id: UserId, accStorage: AccountStorage2, client: LoginClient, tracking: TrackingService) extends AccessTokenProvider {
 
   lazy implicit val logTag: LogTag = accountTag[AuthenticationManager](id)
 
@@ -60,7 +60,7 @@ class AuthenticationManager(id: UserId, accStorage: AccountStorage, client: Logi
   private def cookie = withAccount(_.cookie)
 
   private def withAccount[A](f: AccountData => A): Future[A] = {
-    accStorage.get(id).map {
+    accStorage.find(id).map {
       case Some(acc) => f(acc)
       case _         => throw LoggedOutException
     }
@@ -74,7 +74,7 @@ class AuthenticationManager(id: UserId, accStorage: AccountStorage, client: Logi
 
   private def wipeCredentials(): Future[Unit] = {
     verbose("wipe credentials")
-    accStorage.remove(id)
+    accStorage.deleteByKey(id)
   }
 
   def invalidateToken(): Future[Unit] = token.map(_.foreach(t => updateCredentials(Some(t.copy(expiresAt = Instant.EPOCH)))))

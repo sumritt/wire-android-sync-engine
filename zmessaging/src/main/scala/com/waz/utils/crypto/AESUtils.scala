@@ -19,10 +19,11 @@ package com.waz.utils.crypto
 
 import java.io._
 import java.security.{DigestInputStream, DigestOutputStream, MessageDigest}
+import java.util.Base64
+
+import android.annotation.TargetApi
 import javax.crypto.{BadPaddingException, Cipher, CipherInputStream, CipherOutputStream}
 import javax.crypto.spec.{IvParameterSpec, SecretKeySpec}
-
-import android.util.Base64
 import com.waz.model.{AESKey, Sha256}
 import com.waz.utils.{IoUtils, returning}
 
@@ -33,10 +34,13 @@ import com.waz.utils.{IoUtils, returning}
   */
 object AESUtils {
 
+  //TODO Why not SecureRandom?
   lazy val randomBytes = new RandomBytes()
 
-  def base64(key: Array[Byte]) = Base64.encodeToString(key, Base64.NO_WRAP | Base64.NO_CLOSE)
-  def base64(key: String) = Base64.decode(key, Base64.NO_WRAP | Base64.NO_CLOSE)
+  @TargetApi(26)
+  def base64(key: Array[Byte]): String = Base64.getEncoder.encodeToString(key)
+  @TargetApi(26)
+  def base64(key: String): Array[Byte] = Base64.getDecoder.decode(key)
 
   def randomKey(): AESKey = AESKey(randomBytes(32))
   def randomKey128(): AESKey = AESKey(randomBytes(16))
@@ -66,7 +70,9 @@ object AESUtils {
   }
 
   def outputStream(key: AESKey, os: OutputStream) = {
-    val iv = randomBytes(16)
+//    val iv = randomBytes(16)
+    val iv = Array.ofDim[Byte](16)
+    ZSecureRandom.nextBytes(iv)
     os.write(iv)
     new CipherOutputStream(os, cipher(key, iv, Cipher.ENCRYPT_MODE))
   }
@@ -74,25 +80,25 @@ object AESUtils {
   def inputStream(key: AESKey, is: InputStream) = {
     val iv = returning(new Array[Byte](16))(IoUtils.readFully(is, _, 0, 16))
 
-      new CipherInputStream(is, cipher(key, iv, Cipher.DECRYPT_MODE)) {
-        // close behaviour was changed in Java8, it now throws exception if stream wasn't properly decrypted,
-        // this exception will also happen if stream wasn't fully read, we don't want that.
-        // In some cases we want to only read part of a stream and be able to stop reading without unexpected errors.
-        override def close(): Unit = try {
-          super.close()
-        } catch {
-          case io: IOException =>
-            io.getCause match {
-              case _: BadPaddingException => //ignore
-              case e => throw e
-            }
-        }
-
-        private val skipBuffer = Array.ofDim[Byte](4096)
-
-        // skip is not supported in some android versions (as well as on some JVMs), so we just read required number of bytes instead
-        override def skip(n: Long): Long =
-          read(skipBuffer, 0, math.min(skipBuffer.length, n.toInt))
+    new CipherInputStream(is, cipher(key, iv, Cipher.DECRYPT_MODE)) {
+      // close behaviour was changed in Java8, it now throws exception if stream wasn't properly decrypted,
+      // this exception will also happen if stream wasn't fully read, we don't want that.
+      // In some cases we want to only read part of a stream and be able to stop reading without unexpected errors.
+      override def close(): Unit = try {
+        super.close()
+      } catch {
+        case io: IOException =>
+          io.getCause match {
+            case _: BadPaddingException => //ignore
+            case e => throw e
+          }
       }
+
+      private val skipBuffer = Array.ofDim[Byte](4096)
+
+      // skip is not supported in some android versions (as well as on some JVMs), so we just read required number of bytes instead
+      override def skip(n: Long): Long =
+        read(skipBuffer, 0, math.min(skipBuffer.length, n.toInt))
     }
+  }
 }
