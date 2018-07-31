@@ -39,7 +39,7 @@ import com.waz.service.messages.{MessagesContentUpdater, MessagesService}
 import com.waz.service.tracking.TrackingService
 import com.waz.sync.SyncServiceHandle
 import com.waz.sync.client.{ConversationsClient, ErrorOr}
-import com.waz.threading.{CancellableFuture, Threading}
+import com.waz.threading.Threading
 import com.waz.utils.Locales.currentLocaleOrdering
 import com.waz.utils.RichFuture.traverseSequential
 import com.waz.utils._
@@ -48,37 +48,28 @@ import com.waz.utils.events.EventStream
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.language.implicitConversions
-import scala.util.control.NonFatal
 
 trait ConversationsUiService {
   import ConversationsUiService._
 
-  def sendTextMessage(convId: ConvId, text: String, exp: Option[Option[FiniteDuration]] = None): Future[Some[MessageData]]
+  def sendTextMessage(convId: ConvId, text: String, exp: Option[Option[FiniteDuration]] = None): Future[(SyncId, MessageData)]
   def sendTextMessages(convs: Seq[ConvId], text: String, exp: Option[FiniteDuration]): Future[Unit]
 
-  def sendAssetMessage(convId: ConvId, rawInput: RawAssetInput, confirmation: WifiWarningConfirmation = DefaultConfirmation, exp: Option[Option[FiniteDuration]] = None): Future[Option[MessageData]]
+  def sendAssetMessage(convId: ConvId, rawInput: RawAssetInput, confirmation: WifiWarningConfirmation = DefaultConfirmation, exp: Option[Option[FiniteDuration]] = None): Future[Option[(SyncId, MessageData)]]
   def sendAssetMessages(convs: Seq[ConvId], assets: Seq[RawAssetInput], confirmation: WifiWarningConfirmation = DefaultConfirmation, exp: Option[FiniteDuration] = None): Future[Unit]
 
   @Deprecated
-  def sendMessage(convId: ConvId, audioAsset: AssetForUpload, confirmation: WifiWarningConfirmation = DefaultConfirmation): Future[Option[MessageData]]
+  def sendMessage(convId: ConvId, audioAsset: AssetForUpload, confirmation: WifiWarningConfirmation = DefaultConfirmation): Future[Option[(SyncId, MessageData)]]
 
-  def sendLocationMessage(convId: ConvId, l: api.MessageContent.Location): Future[Some[MessageData]] //TODO remove use of MessageContent.Location
+  def sendLocationMessage(convId: ConvId, l: api.MessageContent.Location): Future[(SyncId, MessageData)] //TODO remove use of MessageContent.Location
 
-  def updateMessage(convId: ConvId, id: MessageId, text: String): Future[Option[MessageData]]
+  def updateMessage(convId: ConvId, id: MessageId, text: String): Future[Option[(SyncId, MessageData)]]
 
-  def deleteMessage(convId: ConvId, id: MessageId): Future[Unit]
-  def recallMessage(convId: ConvId, id: MessageId): Future[Option[MessageData]]
-  def setConversationArchived(id: ConvId, archived: Boolean): Future[Option[ConversationData]]
-  def setConversationMuted(id: ConvId, muted: Boolean): Future[Option[ConversationData]]
-  def setConversationName(id: ConvId, name: String): Future[Option[ConversationData]]
+  def deleteMessage(convId: ConvId, id: MessageId): Future[SyncId]
+  def recallMessage(convId: ConvId, id: MessageId): Future[Option[(SyncId, MessageData)]]
 
-  def addConversationMembers(conv: ConvId, users: Set[UserId]): Future[Option[SyncId]]
-  def removeConversationMember(conv: ConvId, user: UserId): Future[Option[SyncId]]
-
-  def leaveConversation(conv: ConvId): Future[Unit]
-  def clearConversation(id: ConvId): Future[Option[ConversationData]]
   def findGroupConversations(prefix: SearchKey, limit: Int, handleOnly: Boolean): Future[Seq[ConversationData]]
-  def knock(id: ConvId): Future[Option[MessageData]]
+  def knock(id: ConvId): Future[(SyncId, MessageData)]
   def setLastRead(convId: ConvId, msg: MessageData): Future[Option[ConversationData]]
 
   def setEphemeral(id: ConvId, expiration: Option[FiniteDuration]): Future[Unit]
@@ -86,7 +77,7 @@ trait ConversationsUiService {
 
   //conversation creation methods
   def getOrCreateOneToOneConversation(toUser: UserId): Future[ConversationData]
-  def createGroupConversation(name: Option[String] = None, members: Set[UserId] = Set.empty, teamOnly: Boolean = false): Future[(ConversationData, SyncId)]
+  def createGroupConversation(name: Option[String] = None, members: Set[UserId] = Set.empty, teamOnly: Boolean = false): Future[(SyncId, ConversationData)]
 
   def assetUploadCancelled : EventStream[Mime]
   def assetUploadFailed    : EventStream[ErrorResponse]
@@ -128,8 +119,8 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
     for {
       msg <- messages.addTextMessage(convId, text, exp)
       _   <- updateLastRead(msg)
-      _   <- sync.postMessage(msg.id, convId, msg.editTime)
-    } yield Some(msg)
+      id  <- sync.postMessage(msg.id, convId, msg.editTime)
+    } yield (id, msg)
 
   override def sendTextMessages(convs: Seq[ConvId], text: String, exp: Option[FiniteDuration]) =
     Future.sequence(convs.map(id => sendTextMessage(id, text, Some(exp)))).map(_ => {})
@@ -137,7 +128,7 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
   override def sendAssetMessage(convId: ConvId, rawInput: RawAssetInput, confirmation: WifiWarningConfirmation = DefaultConfirmation, exp: Option[Option[FiniteDuration]] = None) =
     assets.addAsset(rawInput).flatMap {
       case Some(asset) => postAssetMessage(convId, asset, confirmation, exp)
-      case _ => Future.successful(Option.empty[MessageData])
+      case _ => Future.successful(None)
     }
 
   override def sendAssetMessages(convs: Seq[ConvId], uris: Seq[RawAssetInput], confirmation: WifiWarningConfirmation, exp: Option[FiniteDuration] = None) =
@@ -156,20 +147,20 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
       _          <- updateLastRead(message)
       _          <- Future.successful(tracking.assetContribution(asset.id, selfUserId))
       shouldSend <- checkSize(convId, Some(asset.size), asset.mime, message, confirmation)
-      _ <- if (shouldSend) sync.postMessage(message.id, convId, message.editTime) else Future.successful(())
-    } yield Some(message)
+      syncId     <- if (shouldSend) sync.postMessage(message.id, convId, message.editTime).map(Some(_)) else Future.successful(None)
+    } yield syncId.map((_, message))
   }
 
-  override def sendLocationMessage(convId: ConvId, l: api.MessageContent.Location): Future[Some[MessageData]] = {
+  override def sendLocationMessage(convId: ConvId, l: api.MessageContent.Location) = {
     val loc = Location(l.getLongitude, l.getLatitude, l.getName, l.getZoom)
     for {
       msg <- messages.addLocationMessage(convId, loc)
       _   <- updateLastRead(msg)
-      _   <- sync.postMessage(msg.id, convId, msg.editTime)
-    } yield Some(msg)
+      id  <- sync.postMessage(msg.id, convId, msg.editTime)
+    } yield (id, msg)
   }
 
-  override def updateMessage(convId: ConvId, id: MessageId, text: String): Future[Option[MessageData]] = {
+  override def updateMessage(convId: ConvId, id: MessageId, text: String) = {
     verbose(s"updateMessage($convId, $id, $text")
     messagesContent.updateMessage(id) {
       case m if m.convId == convId && m.userId == selfUserId =>
@@ -180,121 +171,26 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
         warn(s"Can not update msg: $m")
         m
     } flatMap {
-      case Some(m) => sync.postMessage(m.id, m.convId, m.editTime) map { _ => Some(m) } // using PostMessage sync request to use the same logic for failures and retrying
+      case Some(m) => sync.postMessage(m.id, m.convId, m.editTime).map(id => Some((id, m))) // using PostMessage sync request to use the same logic for failures and retrying
       case None => Future successful None
     }
   }
 
-  override def deleteMessage(convId: ConvId, id: MessageId): Future[Unit] = for {
+  override def deleteMessage(convId: ConvId, id: MessageId) = for {
     _ <- messagesContent.deleteOnUserRequest(Seq(id))
-    _ <- sync.postDeleted(convId, id)
-  } yield ()
+    id <- sync.postDeleted(convId, id)
+  } yield id
 
-  override def recallMessage(convId: ConvId, id: MessageId): Future[Option[MessageData]] =
+  override def recallMessage(convId: ConvId, id: MessageId) =
     messages.recallMessage(convId, id, selfUserId, time = LocalInstant.Now.toRemote(currentBeDrift)) flatMap {
       case Some(msg) =>
-        sync.postRecalled(convId, msg.id, id) map { _ => Some(msg) }
+        sync.postRecalled(convId, msg.id, id).map(id => Some((id, msg)))
       case None =>
         warn(s"could not recall message $convId, $id")
         Future successful None
     }
 
   private def updateLastRead(msg: MessageData) = convsContent.updateConversationLastRead(msg.convId, msg.time)
-
-  override def setConversationArchived(id: ConvId, archived: Boolean): Future[Option[ConversationData]] = convs.setConversationArchived(id, archived)
-
-  override def setConversationMuted(id: ConvId, muted: Boolean): Future[Option[ConversationData]] =
-    convsContent.updateConversationMuted(id, muted) map {
-      case Some((_, conv)) => sync.postConversationState(id, ConversationState(muted = Some(conv.muted), muteTime = Some(conv.muteTime))); Some(conv)
-      case None => None
-    }
-
-  override def setConversationName(id: ConvId, name: String): Future[Option[ConversationData]] = {
-    verbose(s"setConversationName($id, $name)")
-    convsContent.updateConversationName(id, name) flatMap {
-      case Some((_, conv)) if conv.name.contains(name) =>
-        sync.postConversationName(id, conv.name.getOrElse(""))
-        messages.addRenameConversationMessage(id, selfUserId, name).map(_ => Some(conv))
-      case conv =>
-        warn(s"Conversation name could not be changed for: $id, conv: $conv")
-        CancellableFuture.successful(None)
-    }
-  }
-
-  override def addConversationMembers(conv: ConvId, users: Set[UserId]) = {
-    (for {
-      true   <- canModifyMembers(conv)
-      added  <- members.add(conv, users) if added.nonEmpty
-      _      <- messages.addMemberJoinMessage(conv, selfUserId, added.map(_.userId))
-      syncId <- sync.postConversationMemberJoin(conv, added.map(_.userId).toSeq)
-    } yield Option(syncId))
-      .recover {
-        case NonFatal(e) =>
-          warn(s"Failed to add members: $users to conv: $conv", e)
-          Option.empty[SyncId]
-      }
-  }
-
-  override def removeConversationMember(conv: ConvId, user: UserId) = {
-    (for {
-      true    <- canModifyMembers(conv)
-      Some(_) <- members.remove(conv, user)
-      _       <- messages.addMemberLeaveMessage(conv, selfUserId, user)
-      syncId  <- sync.postConversationMemberLeave(conv, user)
-    } yield Some(syncId))
-      .recover {
-        case NonFatal(e) =>
-          warn(s"Failed to remove member: $user from conv: $conv", e)
-          Option.empty[SyncId]
-      }
-  }
-
-  private def canModifyMembers(conv: ConvId) =
-    for {
-      selfActive <- members.isActiveMember(conv, selfUserId)
-      isGroup    <- convs.isGroupConversation(conv)
-    } yield selfActive && isGroup
-
-  override def leaveConversation(conv: ConvId) = {
-    verbose(s"leaveConversation($conv)")
-    for {
-      _ <- convsContent.setConvActive(conv, active = false)
-      _ <- removeConversationMember(conv, selfUserId)
-      _ <- convsContent.updateConversationArchived(conv, archived = true)
-    } yield {}
-  }
-
-  def isAbleToModifyMembers(conv: ConvId, user: UserId): Future[Boolean] = {
-    val isGroup = convs.isGroupConversation(conv)
-    val isActiveMember = members.isActiveMember(conv, user)
-    for {
-      p1 <- isGroup
-      p2 <- isActiveMember
-    } yield p1 && p2
-  }
-
-  override def clearConversation(id: ConvId): Future[Option[ConversationData]] = convsContent.convById(id) flatMap {
-    case Some(conv) if conv.convType == ConversationType.Group || conv.convType == ConversationType.OneToOne =>
-      verbose(s"clearConversation($conv)")
-
-      convsContent.updateConversationCleared(conv.id, conv.lastEventTime) flatMap {
-        case Some((_, c)) =>
-          for {
-            _ <- convsContent.updateConversationLastRead(c.id, c.cleared.getOrElse(RemoteInstant.Epoch))
-            _ <- convsContent.updateConversationArchived(c.id, archived = true)
-            _ <- c.cleared.fold(Future.successful({}))(sync.postCleared(c.id, _).map(_ => ()))
-          } yield Some(c)
-        case None =>
-          verbose("updateConversationCleared did nothing - already cleared")
-          Future successful None
-      }
-    case Some(conv) =>
-      warn(s"conversation of type ${conv.convType} can not be cleared")
-      Future successful None
-    case None =>
-      warn(s"conversation to be cleared not found: $id")
-      Future successful None
-  }
 
   override def getOrCreateOneToOneConversation(other: UserId) = {
 
@@ -328,7 +224,7 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
       } yield data.filter(c => c.team.contains(tId) && c.name.isEmpty)).flatMap { convs =>
         if (convs.isEmpty) {
           verbose(s"No conversation with user $other found, creating new team 1:1 conversation (type == Group)")
-          createAndPostConversation(ConvId(), None, Set(other)).map(_._1)
+          createAndPostConversation(ConvId(), None, Set(other)).map(_._2)
         } else {
           if (convs.size > 1) warn(s"Found ${convs.size} available team conversations with user: $other, returning first conversation found")
           Future.successful(convs.head)
@@ -356,16 +252,16 @@ class ConversationsUiServiceImpl(selfUserId:      UserId,
       _    = verbose(s"created: $conv")
       _    <- messages.addConversationStartMessage(conv.id, selfUserId, members, name)
       syncId <- sync.postConversation(id, members, conv.name, teamId, ac, ar)
-    } yield (conv, syncId)
+    } yield (syncId, conv)
   }
 
   override def findGroupConversations(prefix: SearchKey, limit: Int, handleOnly: Boolean): Future[Seq[ConversationData]] =
     convStorage.search(prefix, selfUserId, handleOnly).map(_.sortBy(_.displayName)(currentLocaleOrdering).take(limit))
 
-  override def knock(id: ConvId): Future[Option[MessageData]] = for {
+  override def knock(id: ConvId) = for {
     msg <- messages.addKnockMessage(id, selfUserId)
-    _   <- sync.postMessage(msg.id, id, msg.editTime)
-  } yield Some(msg)
+    id  <- sync.postMessage(msg.id, id, msg.editTime)
+  } yield (id, msg)
 
   override def setLastRead(convId: ConvId, msg: MessageData): Future[Option[ConversationData]] =
     convsContent.updateConversationLastRead(convId, msg.time) map {

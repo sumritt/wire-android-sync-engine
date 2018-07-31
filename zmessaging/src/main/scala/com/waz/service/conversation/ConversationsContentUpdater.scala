@@ -23,12 +23,10 @@ import com.waz.api.IConversation.{Access, AccessRole}
 import com.waz.content._
 import com.waz.model.ConversationData.ConversationType
 import com.waz.model.{UserId, _}
-import com.waz.service.UserService
 import com.waz.service.tracking.TrackingService
 import com.waz.threading.{CancellableFuture, SerialDispatchQueue}
 import com.waz.utils._
 import com.waz.utils.events.Signal
-import org.threeten.bp.Instant
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NoStackTrace

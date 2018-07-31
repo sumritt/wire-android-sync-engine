@@ -25,33 +25,28 @@ import android.content.Context
 import android.view.View
 import com.waz.ZLog.ImplicitTag._
 import com.waz.ZLog.LogTag
-import com.waz.api.{impl, _}
+import com.waz.api.MessageContent
 import com.waz.content.{Database, GlobalDatabase, GlobalPreferences}
 import com.waz.log.{InternalLog, LogOutput}
 import com.waz.media.manager.context.IntensityLevel
-import com.waz.model.AccountData.Password
-import com.waz.model.ConversationData.ConversationType
-import com.waz.model.UserData.ConnectionStatus
 import com.waz.model.otr.ClientId
 import com.waz.model.{ConvId, Liking, RConvId, MessageContent => _, _}
 import com.waz.provision.DeviceActor.responseTimeout
 import com.waz.service.AccountManager.ClientRegistrationState.Registered
 import com.waz.service._
 import com.waz.service.assets.AssetService.RawAssetInput.{ByteInput, UriInput}
-import com.waz.service.call.FlowManagerService
-import com.waz.service.conversation.ConversationsUiService
-import com.waz.testutils.Implicits._
-import com.waz.threading.{DispatchQueueStats, _}
+import com.waz.service.call.Avs.WCall
+import com.waz.service.call.{Avs, CallingService, FlowManagerService}
+import com.waz.threading._
 import com.waz.ui.UiModule
-import com.waz.utils.RichFuture.traverseSequential
 import com.waz.utils._
 import com.waz.utils.events.Signal
 import com.waz.utils.wrappers.URI
-import org.threeten.bp.Instant
+import com.sun.jna.Pointer
 
-import scala.concurrent.Future.successful
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
+import scala.util.control.NonFatal
 import scala.util.{Failure, Random, Success, Try}
 
 /**
@@ -59,7 +54,7 @@ import scala.util.{Failure, Random, Success, Try}
   */
 object DeviceActor {
 
-  val responseTimeout = 120.seconds
+  val responseTimeout = 240.seconds
 
   def props(deviceName: String,
             application: Context,
@@ -79,8 +74,6 @@ class DeviceActor(val deviceName: String,
       level match {
         case Error => DeviceActor.this.log.error(s"$tag: $str")
         case Warn  => DeviceActor.this.log.warning(s"$tag: $str")
-//        case Info  => DeviceActor.this.log.info(s"$tag: $str")
-//        case Debug => DeviceActor.this.log.debug(s"$tag: $str")
         case _     => DeviceActor.this.log.info(s"$tag: $str")
       }
     }
@@ -103,10 +96,13 @@ class DeviceActor(val deviceName: String,
     ZMessaging.currentGlobal = this
     lifecycle.acquireUi()
 
-    override lazy val accountsService = new AccountsServiceImpl(this) {
+    com.waz.utils.isTest = true
+
+    Await.ready(prefs(GlobalPreferences.FirstTimeWithTeams) := false, 5.seconds)
+    Await.ready(prefs(GlobalPreferences.DatabasesRenamed) := true, 5.seconds)
+
+    override lazy val accountsService: AccountsService = new AccountsServiceImpl(this) {
       ZMessaging.currentAccounts = this
-      Await.ready(prefs(GlobalPreferences.FirstTimeWithTeams) := false, 5.seconds)
-      Await.ready(prefs(GlobalPreferences.DatabasesRenamed) := true, 5.seconds)
     }
 
     override val storage: Database = new GlobalDatabase(application, Random.nextInt().toHexString)
@@ -115,6 +111,41 @@ class DeviceActor(val deviceName: String,
       override val cryptoBoxDirName: String = "otr_" + Random.nextInt().toHexString
       override lazy val deviceModel: String = deviceName
       override lazy val localBluetoothName: String = deviceName
+    }
+
+    override lazy val avs = new Avs {
+      override def rejectCall(wCall: WCall, convId: RConvId) =
+        log.warning("Calling not implemented for actors!")
+
+      override def onNetworkChanged(wCall: WCall) =
+        Future.successful(log.warning("Calling not implemented for actors!"))
+
+      override def startCall(wCall: WCall, convId: RConvId, callType: Avs.WCallType.Value, convType: Avs.WCallConvType.Value, cbrEnabled: Boolean) =
+        Future.successful { log.warning("Calling not implemented for actors!"); -1}
+
+      override def setVideoSendState(wCall: WCall, convId: RConvId, state: Avs.VideoState.Value): Unit =
+        log.warning("Calling not implemented for actors!")
+
+      override def onHttpResponse(wCall: WCall, status: Int, reason: String, arg: Pointer) =
+        Future.successful(log.warning("Calling not implemented for actors!"))
+
+      override def endCall(wCall: WCall, convId: RConvId): Unit =
+        log.warning("Calling not implemented for actors!")
+
+      override def answerCall(wCall: WCall, convId: RConvId, callType: Avs.WCallType.Value, cbrEnabled: Boolean): Unit =
+        log.warning("Calling not implemented for actors!")
+
+      override def onConfigRequest(wCall: WCall, error: Int, json: String) =
+        Future.successful(log.warning("Calling not implemented for actors!"))
+
+      override def registerAccount(callingService: CallingService) =
+        Future.failed(new Exception("Calling not implemented for actors!"))
+
+      override def onReceiveMessage(wCall: WCall, msg: String, currTime: LocalInstant, msgTime: RemoteInstant, convId: RConvId, userId: UserId, clientId: ClientId): Unit =
+        log.warning("Calling not implemented for actors!")
+
+      override def unregisterAccount(wCall: WCall) =
+        Future.successful(log.warning("Calling not implemented for actors!"))
     }
 
     override lazy val flowmanager = new FlowManagerService {
@@ -145,10 +176,11 @@ class DeviceActor(val deviceName: String,
     ui.onStart()
   }
 
-  val zms = accountsService.activeZms.collect { case Some(z) => z }
+  val zmsOpt = accountsService.activeZms
+  val zms = zmsOpt.collect { case Some(z) => z }
   val am  = accountsService.activeAccountManager.collect { case Some(a) => a }
 
-  implicit val ec: DispatchQueue = new SerialDispatchQueue(name = s"DeviceActor_$deviceName")
+  import Threading.Implicits.Background
 
   @throws[Exception](classOf[Exception])
   override def postStop(): Unit = {
@@ -177,40 +209,32 @@ class DeviceActor(val deviceName: String,
   override def receive: Receive = respondInFuture {
     case Echo(msg, _) => Future.successful(Echo(msg, deviceName))
 
-    case Login(email, pass) => accountsService.loginEmail(email, pass).flatMap {
-      case Right(userId) => accountsService.createAccountManager(userId, None, None).map(am => Right(am))
-      case Left(err)     => Future.successful(Left(err))
-    }.flatMap {
-      case Right(Some(am)) => am.getOrRegisterClient().map(_.fold(e => Left(e), s => Right((am, s))))
-      case Right(None)     => Future.successful(Left(impl.ErrorResponse.internalError("Failed to create account manager")))
-      case Left(e)         => Future.successful(Left(e))
-    }.map {
-      case Right((am, Registered(cId))) => Successful(s"Successfully logged in with user: ${am.userId} and client: $cId")
-      case Right((_, st))               => Failed(s"Failed to register client: $st")
-      case Left(err)                    => Failed(s"Failed to log in with $email, $pass: $err")
-    }
-
-    case SendRequest(userId) =>
-      Option(userId) match {
-        case Some(uId) =>
-          (for {
-            z    <- zms.head
-            user <- z.usersStorage.signal(uId).head
-            conv <- z.connection.connectToUser(uId, "meep", user.getDisplayName)
-          } yield conv.filter(_.convType == ConversationType.WaitForConnection))
-            .map(_.fold2(Failed(s"Failed to send connect request to user $uId"), _ => Successful))
-        case _ => Future.successful(Failed("UserId cannot be null"))
-      }
-
-    case GetUser =>
-      waitForSelf.map(u => Successful(u.id.str))
+    case Login(email, pass) =>
+      (for {
+        r1       <- accountsService.loginEmail(email, pass)
+        Some(am) <- r1 match {
+          case Right(userId) => accountsService.createAccountManager(userId, None, None)
+          case Left(err)     => throw new Exception(s"Failed to login: $err")
+        }
+        _   <- accountsService.setAccount(Some(am.userId))
+        r2  <- am.getOrRegisterClient()
+        zms <- r2 match {
+          case Right(Registered(_)) => am.zmessaging
+          case Right(st) => throw new Exception(s"Failed to register new client: $st")
+          case Left(err) => throw new Exception(s"Failed to register new client: $err")
+        }
+        //TODO wait for login-related syncing to complete before returning
+//        t = clock.instant()
+//        _ = log.info("Awaiting login sync")
+//        _ <- zms.syncRequests.scheduler.awaitRunning
+//        _ = log.info(s"Login sync complete, took: ${t until clock.instant()}")
+      } yield Successful(s"Successfully logged in with user: ${am.userId}"))
+        .recover {
+          case NonFatal(e) => Failed(e.getMessage)
+        }
 
     case GetUserName =>
       waitForSelf.map(u => Successful(u.name))
-
-    case GetConv(name) =>
-      zms.flatMap(_.convsStorage.convsSignal.map(_.conversations.find(_.name == name).map(_.remoteId))).head
-        .map(_.fold2(Failed(s"Could not find a conversation with name: $name"), r => Successful(r.str)))
 
     case GetMessages(rConvId) =>
       for {
@@ -224,18 +248,15 @@ class DeviceActor(val deviceName: String,
         })
       }
 
-    case CreateGroupConversation(users@_*) =>
-      zms.head.flatMap(_.convsUi.createGroupConversation(members = users.toSet)).map(_ => Successful)
-
     case ClearConversation(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, cId) =>
-        z.convsUi.clearConversation(cId)
-      }.map(_.fold2(Failed(s"Could not find a conversation with id: $remoteId"), r => Successful))
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, cId) =>
+        z.conversations.clearConversation(cId).map(_.map(_._1))
+      }
 
     case SendText(remoteId, msg) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, cId) =>
-        z.convsUi.sendTextMessage(cId, msg)
-      }.map(_.fold2(Failed(s"Unable to create message: $msg in conv: $remoteId"), r => Successful))
+      withZmsAndLocalConvWaitSync(remoteId) { case (z, cId) =>
+        z.convsUi.sendTextMessage(cId, msg).map(_._1)
+      }
 
     case UpdateText(msgId, text) =>
       for {
@@ -243,86 +264,54 @@ class DeviceActor(val deviceName: String,
         msg <- z.messagesStorage.getMessage(msgId)
         res <- msg match {
           case Some(msg) if msg.userId == z.selfUserId =>
-            z.convsUi.updateMessage(msg.convId, msgId, text).map(_ => Successful)
-          case Some(_) =>
-            Future.successful(Failed("Can not update messages from other user"))
-          case None =>
+            z.convsUi.updateMessage(msg.convId, msgId, text).flatMap {
+              case Some((id, _)) => awaitSyncResults(Set(id))
+              case _ => Future.successful(Failed("No sync job was created"))
+            }
+          case _ =>
             Future.successful(Failed("No message found with given id"))
         }
       } yield res
 
     case DeleteMessage(rConvId, msgId) =>
-      for {
-        (z, convId) <- zmsWithLocalConv(rConvId)
-        res <- z.messagesStorage.getMessage(msgId).flatMap {
-          case Some(msg) =>
-            z.convsUi.deleteMessage(convId, msgId).map(_ => Successful)
-          case None =>
-            Future.successful(Failed("No message found with given id"))
-        }
-      } yield res
+      withZmsAndLocalConvWaitSync(rConvId) { case (z, cId) =>
+        z.convsUi.deleteMessage(cId, msgId)
+      }
 
     case SendGiphy(rConvId, searchQuery) =>
       zmsWithLocalConv(rConvId).flatMap { case (z, convId) =>
         for {
-          res   <- (if (searchQuery.isEmpty) z.giphy.trending() else z.giphy.searchGiphyImage(searchQuery)).future
-          msg1  <- z.convsUi.sendTextMessage(convId, "Via giphy.com")
-//              msg2  <- z.convsUi.sendMessage(convId, ) //TODO use asset data directly when we get rid of ImageAsset
-        } yield Successful
+          res            <- (if (searchQuery.isEmpty) z.giphy.trending() else z.giphy.searchGiphyImage(searchQuery)).future
+          (id, _)        <- z.convsUi.sendTextMessage(convId, "Via giphy.com")
+          Some((id2, _)) <- z.convsUi.sendAssetMessage(convId, UriInput(res.head._2.source.get))
+          res            <- awaitSyncResults(Set(id, id2))
+        } yield res
       }
 
     case RecallMessage(rConvId, msgId) =>
-      zmsWithLocalConv(rConvId).flatMap {
-        case (z, convId) => z.convsUi.recallMessage(convId, msgId)
-      }.map(_ => Successful)
-
-    case AcceptConnection(userId) =>
-      Option(userId) match {
-        case Some(_) =>
-          for {
-            z <- zms.head
-            _ <- z.usersStorage.signal(userId).filter(_.connection == ConnectionStatus.PendingFromOther).head
-            _ <- z.connection.acceptConnection(userId)
-          } yield Successful
-        case None =>
-          Future.successful(Failed("UserId cannot be null"))
+      withZmsAndLocalConvWaitOptSync(rConvId) { case (z, cId) =>
+        z.convsUi.recallMessage(cId, msgId).map(_.map(_._1))
       }
 
     case SendImage(remoteId, path) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.sendAssetMessage(convId, ByteInput(IoUtils.toByteArray(new FileInputStream(path))))
-      }.map(_.fold2(Failed("no message sent"), m => Successful(m.id.str)))
-
-    case SendImageData(remoteId, bytes) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.sendAssetMessage(convId, ByteInput(bytes))
-      }.map(_.fold2(Failed("no message sent"), m => Successful(m.id.str)))
-
-    case SendAsset(remoteId, bytes, mime, name, _) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        //TODO for now this assumes image only - need to handle bytes for other asset types too
-        z.convsUi.sendAssetMessage(convId, ByteInput(bytes))
-      }.map(_.fold2(Failed("no message sent"), m => Successful(m.id.str)))
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.convsUi.sendAssetMessage(convId, ByteInput(IoUtils.toByteArray(new FileInputStream(path)))).map(_.map(_._1))
+      }
 
     case SendLocation(remoteId, lon, lat, name, zoom) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.sendLocationMessage(convId, new MessageContent.Location(lon, lat, name, zoom))
-      }.map(_.fold2(Failed("no message sent"), m => Successful(m.id.str)))
+      withZmsAndLocalConvWaitSync(remoteId) { case (z, convId) =>
+        z.convsUi.sendLocationMessage(convId, new MessageContent.Location(lon, lat, name, zoom)).map(_._1)
+      }
 
     case SendFile(remoteId, path, mime) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.sendAssetMessage(convId, UriInput(URI.parse(path)))
-      }.map(_.fold2(Failed("no message sent"), m => Successful(m.id.str)))
-
-    case AddMembers(remoteId, users@_*) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-          z.convsUi.addConversationMembers(convId, users.toSet)
-      }.map(_ => Successful)
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.convsUi.sendAssetMessage(convId, UriInput(URI.parse(path))).map(_.map(_._1))
+      }
 
     case Knock(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.knock(convId)
-      }.map(_.fold2(Failed("no ping sent"), m => Successful(m.id.str)))
+      withZmsAndLocalConvWaitSync(remoteId) { case (z, convId) =>
+        z.convsUi.knock(convId).map(_._1)
+      }
 
     case SetEphemeral(remoteId, expiration) =>
       zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
@@ -344,32 +333,24 @@ class DeviceActor(val deviceName: String,
       }.map(_ => Successful)
 
     case ArchiveConv(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.setConversationArchived(convId, archived = true)
-      }.map(_ => Successful)
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.conversations.setConversationArchived(convId, archived = true).map(_.map(_._1))
+      }
 
     case UnarchiveConv(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.setConversationArchived(convId, archived = false)
-      }.map(_ => Successful)
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.conversations.setConversationArchived(convId, archived = false).map(_.map(_._1))
+      }
 
     case MuteConv(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.setConversationMuted(convId, muted = true)
-      }.map(_ => Successful)
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.conversations.setConversationMuted(convId, muted = true).map(_.map(_._1))
+      }
 
     case UnmuteConv(remoteId) =>
-      zmsWithLocalConv(remoteId).flatMap { case (z, convId) =>
-        z.convsUi.setConversationMuted(convId, muted = false)
-      }.map(_ => Successful)
-
-    case UpdateProfileImage(path) =>
-      zms.head.flatMap(_.users.updateSelfPicture(ByteInput(IoUtils.toByteArray(getClass.getResourceAsStream(path)))))
-        .map(_ => Successful)
-
-    case UpdateProfileName(name) =>
-      zms.head.flatMap(_.users.updateName(name))
-        .map(_ => Successful)
+      withZmsAndLocalConvWaitOptSync(remoteId) { case (z, convId) =>
+        z.conversations.setConversationMuted(convId, muted = false).map(_.map(_._1))
+      }
 
     case UpdateProfileUserName(userName) =>
       zms.head.flatMap(_.users.updateHandle(Handle(userName)))
@@ -384,14 +365,6 @@ class DeviceActor(val deviceName: String,
           } yield Successful
         case None => Future.successful(Failed(s"Unknown availability: $status"))
       }
-
-    case UpdateProfileColor(color) =>
-      zms.head.flatMap(_.users.updateAccentColor(color))
-        .map(_ => Successful)
-
-    case UpdateProfileEmail(email) =>
-      zms.head.flatMap(_.users.updateEmail(EmailAddress(email)))
-        .map(_ => Successful)
 
     case SetMessageReaction(remoteId, messageId, action) =>
       zms.head.flatMap { z =>
@@ -412,20 +385,6 @@ class DeviceActor(val deviceName: String,
         _      <- z.otrClientsService.updateClientLabel(client.id, label)
       } yield Successful
 
-    case DeleteDevice(clientId, password) =>
-      am.head.flatMap(_.deleteClient(ClientId(clientId), Password(password)))
-        .map(_.fold(err => Failed(s"Failed to delete client: ${err.code}, ${err.message}, ${err.label}"), _ => Successful))
-
-    case DeleteAllOtherDevices(password) =>
-      for {
-        z             <- zms.head
-        am            <- am.head
-        clients       <- am.clientsStorage.getClients(am.userId).map(_.map(_.id))
-        others         = clients.filter(_ != z.clientId)
-        responses     <- traverseSequential(others)(am.deleteClient(_, Password(password)))
-        failures       = responses.collect { case Left(err) => s"[unable to delete client: ${err.message}, ${err.code}, ${err.label}]" }
-      } yield if (failures.isEmpty) Successful else Failed(failures mkString ", ")
-
     case GetDeviceId() =>
       zms.head.flatMap(_.otrClientsService.selfClient.head).map(c => Successful(c.id.str))
 
@@ -441,26 +400,6 @@ class DeviceActor(val deviceName: String,
     case AwaitSyncCompleted =>
       zms.flatMap(_.syncContent.syncJobs.filter(_.isEmpty)).head.map(_ => Successful)
 
-    case ResetQueueStats =>
-      Future.successful({
-        com.waz.threading.DispatchQueueStats.reset()
-        Successful
-      })
-
-    case GetQueueStats =>
-      println(s"dispatch queue stats")
-      DispatchQueueStats.printStats(10)
-      successful({
-        QueueStats(DispatchQueueStats.report(10).toArray)
-      })
-
-    case ForceAddressBookUpload =>
-      for {
-        z <- zms.head
-        _ <- z.contacts.lastUploadTime := Some(Instant.EPOCH)
-        _ <- z.contacts.requestUploadIfNeeded()
-      } yield Successful
-
     case m@_ =>
       log.error(s"unknown remote api command '$m'")
       Future.successful(Failed(s"unknown remote api command '$m'"))
@@ -468,7 +407,7 @@ class DeviceActor(val deviceName: String,
 
   def zmsWithLocalConv(rConvId: RConvId): Future[(ZMessaging, ConvId)] = {
     for {
-      z   <- zms.head
+      z   <- zmsOpt.filter(_.isDefined).head.collect { case Some(z) => z }
       _   = log.info(s"zms ready: $z")
       cId <- z.convsStorage.convsSignal.map { csSet =>
         log.info(s"all conversations: ${csSet.conversations}")
@@ -476,6 +415,31 @@ class DeviceActor(val deviceName: String,
       }.collect { case Some(c) => c.id }.head
       _   = log.info(s"Found local conv: $cId for remote: $rConvId")
     } yield (z, cId)
+  }
+
+  private def withZmsAndLocalConvWaitOptSync(rConvId: RConvId)(f: (ZMessaging, ConvId) => Future[Option[SyncId]]) =
+    for {
+      (z, cId) <- zmsWithLocalConv(rConvId)
+      id  <- f(z, cId)
+      res <- id.map(Set(_)).map(awaitSyncResults).getOrElse(Future.successful(Failed("Request didn't produce sync job")))
+    } yield res
+
+  private def withZmsAndLocalConvWaitSync(rConvId: RConvId)(f: (ZMessaging, ConvId) => Future[SyncId]) =
+    withZmsAndLocalConvWaitOptSync(rConvId) { case (z, cId) => f(z, cId).map(Some(_)) }
+
+  private def withZmsWaitOptSync(f: ZMessaging => Future[Option[SyncId]]) =
+    for {
+      z   <- zmsOpt.filter(_.isDefined).head.collect { case Some(z) => z}
+      id  <- f(z)
+      res <- id.map(Set(_)).map(awaitSyncResults).getOrElse(Future.successful(Failed("Request didn't produce sync job")))
+    } yield res
+
+  private def awaitSyncResults(ids: Set[SyncId]) = {
+    zms.head.flatMap(_.syncRequests.scheduler.await(ids)).map { res =>
+      if (res.forall(_.isSuccess))
+        Successful
+      else Failed(res.find(!_.isSuccess).map(_.toString).getOrElse(s"Failed on waiting for sync results: $ids, reason unknown"))
+    }
   }
 
   def waitForSelf: Future[UserData] =

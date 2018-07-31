@@ -19,6 +19,7 @@ package com.waz.utils.crypto
 
 import com.waz.ZLog.warn
 import com.waz.ZLog.ImplicitTag._
+import com.waz.utils.isTest
 
 import scala.util.{Success, Try}
 
@@ -49,8 +50,13 @@ class RandomBytes {
 object RandomBytes {
 
   private lazy val loadLibrary = Try {
-    System.loadLibrary("sodium")
-    System.loadLibrary("randombytes")
+    try {
+      System.loadLibrary("sodium")
+      System.loadLibrary("randombytes")
+    } catch {
+      case _: UnsatisfiedLinkError if isTest => //TODO get randomBytes working in Test!
+        throw new RuntimeException("No randomBytes found in test, ignoring")
+    }
   }
 
 }

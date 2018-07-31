@@ -17,11 +17,13 @@
  */
 package com.waz
 
+import java.net.URI
+
 import akka.pattern.ask
 import com.waz.api.ProcessActorSpec
 import com.waz.model.RConvId
 import com.waz.provision.ActorMessage._
-import com.waz.service.BackendConfig
+import com.waz.service.{BackendConfig, UserService}
 import org.scalatest.FeatureSpec
 
 import scala.concurrent.Await
@@ -31,10 +33,13 @@ class QAActorSpec extends FeatureSpec with ProcessActorSpec {
   import com.waz.threading.Threading.Implicits.Background
 
   scenario("Basic login test") {
-//    val ref = registerDevice("test_device")
-//    Await.result(ref ? Login("dean+7@wire.com", "aqa123456"), timeout)
-//    Thread.sleep(10000)
-//    Await.result(ref ? SendText(RConvId("f78cf1fe-a1ce-4d50-8af4-312f8a6a0e0c"), "Lah lah lah"), timeout)
-//    Thread.sleep(10000)
+    val ref = registerDevice("test_device")
+
+    println(Await.result(ref ? Login("dean+7@wire.com", "aqa123456"), timeout))
+    Thread.sleep(2000)
+    println(Await.result(ref ? SendText(RConvId("f78cf1fe-a1ce-4d50-8af4-312f8a6a0e0c"), "Lah lah lah"), timeout))
+    println(Await.result(ref ? SendImage(RConvId("f78cf1fe-a1ce-4d50-8af4-312f8a6a0e0c"), "/Users/dean/Downloads/5234193.jpeg"), timeout))
+    println(Await.result(ref ? Knock(RConvId("f78cf1fe-a1ce-4d50-8af4-312f8a6a0e0c")), timeout))
+    println(Await.result(ref ? SendLocation(RConvId("f78cf1fe-a1ce-4d50-8af4-312f8a6a0e0c"), 13.4000165f, 52.5294844f, "Rosenthaler Platz", 17), timeout))
   }
 }

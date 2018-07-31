@@ -151,7 +151,7 @@ class AccountManager(val userId:   UserId,
     hasClient = exists
   }
 
-  def addUnsplashPicture(): Future[Unit] = zmessaging.flatMap(_.users.updateSelfPicture(UriInput(UnsplashUrl)))
+  def addUnsplashPicture(): Future[Unit] = zmessaging.flatMap(_.users.updateSelfPicture(UriInput(UnsplashUrl))).map(_ => {})
 
   def fingerprintSignal(uId: UserId, cId: ClientId): Signal[Option[Array[Byte]]] =
     for {

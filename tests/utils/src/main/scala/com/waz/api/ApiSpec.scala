@@ -34,7 +34,7 @@ import scala.{PartialFunction => =/>}
 
 trait ActorSystemSpec extends BeforeAndAfterAll { suite: Suite with Alerting with Informing =>
 
-  implicit val timeout: com.waz.RobolectricUtils.Timeout = 120.seconds
+  implicit val timeout: com.waz.RobolectricUtils.Timeout = 240.seconds
   implicit val akkaTimeout = Timeout(timeout)
 
   def testBackend: BackendConfig

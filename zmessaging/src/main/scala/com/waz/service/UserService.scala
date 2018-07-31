@@ -74,12 +74,12 @@ trait UserService {
   def updateHandle(handle: Handle): ErrorOr[Unit]
 
   //These self user properties should always succeed given no fatal errors, so we update locally and create sync jobs
-  def updateName(name: String): Future[Unit]
-  def updateAccentColor(color: AccentColor): Future[Unit]
-  def updateAvailability(availability: Availability): Future[Unit]
+  def updateName(name: String): Future[Option[SyncId]]
+  def updateAccentColor(color: AccentColor): Future[Option[SyncId]]
+  def updateAvailability(availability: Availability): Future[Option[SyncId]]
 
   def storeAvailabilities(availabilities: Map[UserId, Availability]): Future[Seq[(UserData, UserData)]]
-  def updateSelfPicture(input: RawAssetInput): Future[Unit]
+  def updateSelfPicture(input: RawAssetInput): Future[Option[SyncId]]
 }
 
 class UserServiceImpl(selfUserId:        UserId,
@@ -297,7 +297,7 @@ class UserServiceImpl(selfUserId:        UserId,
 
   override def updateAvailability(availability: Availability) = {
     verbose(s"updateAvailability($availability)")
-    updateAndSync(_.copy(availability = availability), _ => sync.postAvailability(availability)).map(_ => {})
+    updateAndSync(_.copy(availability = availability), _ => sync.postAvailability(availability))
   }
 
   override def storeAvailabilities(availabilities: Map[UserId, Availability]) = {
@@ -308,13 +308,13 @@ class UserServiceImpl(selfUserId:        UserId,
   override def updateSelfPicture(input: RawAssetInput) =
     assets.addAsset(input, isProfilePic = true).flatMap {
       case Some(a) => updateAndSync(_.copy(picture = Some(a.id)), _ => sync.postSelfPicture(Some(a.id)))
-      case _ => Future.successful({})
+      case _ => Future.successful(None)
     }
 
-  private def updateAndSync(updater: UserData => UserData, sync: UserData => Future[_]) =
+  private def updateAndSync(updater: UserData => UserData, sync: UserData => Future[SyncId]) =
     updateUserData(selfUserId, updater).flatMap({
-      case Some((p, u)) if p != u => sync(u).map(_ => {})
-      case _ => Future.successful({})
+      case Some((p, u)) if p != u => sync(u).map(Some(_))
+      case _ => Future.successful(None)
     })
 
 }

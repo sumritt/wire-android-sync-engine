@@ -110,7 +110,6 @@ class GlobalModuleImpl(val context: AContext, val backend: BackendConfig) extend
   val storage:                  Database                         = new GlobalDatabase(context)
   val accountsStorageOld:       AccountsStorageOld               = wire[AccountsStorageOldImpl]
 
-
   lazy val accountsService:     AccountsService                  = new AccountsServiceImpl(this)
   lazy val trackingService:     TrackingService                  = TrackingServiceImpl(accountsService)
   lazy val notifications:       GlobalNotificationsService       = wire[GlobalNotificationsServiceImpl]

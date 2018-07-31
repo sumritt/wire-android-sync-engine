@@ -118,6 +118,9 @@ class OtrSyncHandlerImpl(teamId:             Option[TeamId],
           successful(Left(internalError(s"postEncryptedMessage/broadcastMessage failed with missing clients after several retries: $missing")))
         else
           clientsSyncHandler.syncSessions(missing) flatMap {
+            // XXX: encrypt relies on conv members list, we only add clients for users in conv,
+            // if members list is broken then we will always end up with missing clients,
+            // maybe we should update members list in this place ???
             case None => fn()
             case Some(err) if retry < 3 =>
               error(s"syncSessions for missing clients failed: $err")

@@ -31,13 +31,12 @@ import com.waz.service._
 import com.waz.service.messages.{MessagesContentUpdater, MessagesService}
 import com.waz.service.push.PushService
 import com.waz.service.tracking.{GuestsAllowedToggled, TrackingService}
-import com.waz.sync.client.ConversationsClient
 import com.waz.sync.client.ConversationsClient.ConversationResponse
+import com.waz.sync.client.{ConversationsClient, ErrorOr}
 import com.waz.sync.{SyncRequestService, SyncServiceHandle}
 import com.waz.threading.Threading
 import com.waz.utils._
 import com.waz.utils.events.EventContext
-import com.waz.sync.client.ErrorOr
 
 import scala.collection.{breakOut, mutable}
 import scala.concurrent.Future
@@ -45,16 +44,24 @@ import scala.concurrent.Future.successful
 import scala.util.control.{NoStackTrace, NonFatal}
 
 trait ConversationsService {
-  def content: ConversationsContentUpdater
   def convStateEventProcessingStage: EventScheduler.Stage
   def processConversationEvent(ev: ConversationStateEvent, selfUserId: UserId, retryCount: Int = 0): Future[Any]
   def getSelfConversation: Future[Option[ConversationData]]
   def updateConversationsWithDeviceStartMessage(conversations: Seq[ConversationResponse]): Future[Unit]
-  def setConversationArchived(id: ConvId, archived: Boolean): Future[Option[ConversationData]]
   def forceNameUpdate(id: ConvId): Future[Option[(ConversationData, ConversationData)]]
   def onMemberAddFailed(conv: ConvId, users: Set[UserId], error: Option[ErrorType], resp: ErrorResponse): Future[Unit]
   def isGroupConversation(convId: ConvId): Future[Boolean]
   def isWithService(convId: ConvId): Future[Boolean]
+
+  def setConversationName(id: ConvId, name: String): Future[Option[(SyncId, ConversationData)]]
+  def setConversationArchived(id: ConvId, archived: Boolean): Future[Option[(SyncId, ConversationData)]]
+  def setConversationMuted(id: ConvId, muted: Boolean): Future[Option[(SyncId, ConversationData)]]
+
+  def addConversationMembers(conv: ConvId, users: Set[UserId]): Future[Option[SyncId]]
+  def removeConversationMember(conv: ConvId, user: UserId): Future[Option[SyncId]]
+
+  def leaveConversation(conv: ConvId): Future[Unit]
+  def clearConversation(id: ConvId): Future[Option[(SyncId, ConversationData)]]
 
   def setToTeamOnly(convId: ConvId, teamOnly: Boolean): ErrorOr[Unit]
   def createLink(convId: ConvId): ErrorOr[Link]
@@ -68,7 +75,7 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
                                usersStorage:    UsersStorage,
                                membersStorage:  MembersStorage,
                                convsStorage:    ConversationStorage,
-                               val content:     ConversationsContentUpdater,
+                               content:         ConversationsContentUpdater,
                                sync:            SyncServiceHandle,
                                errors:          ErrorsService,
                                messages:        MessagesService,
@@ -123,7 +130,7 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
       convsStorage.setUnknownVerification(conv)
   }
 
-  def processConversationEvent(ev: ConversationStateEvent, selfUserId: UserId, retryCount: Int = 0) = ev match {
+  override def processConversationEvent(ev: ConversationStateEvent, selfUserId: UserId, retryCount: Int = 0) = ev match {
     case CreateConversationEvent(_, time, from, data) =>
       updateConversations(Seq(data)).flatMap { case (_, created) => Future.traverse(created) { created =>
         messages.addConversationStartMessage(created.id, from, (data.members + selfUserId).filter(_ != from), created.name, time = Some(time))
@@ -193,7 +200,7 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
     case _ => successful(())
   }
 
-  def getSelfConversation = {
+  override def getSelfConversation = {
     val selfConvId = ConvId(selfUserId.str)
     content.convById(selfConvId).flatMap {
       case Some(c) => successful(Some(c))
@@ -206,7 +213,7 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
     }
   }
 
-  def updateConversationsWithDeviceStartMessage(conversations: Seq[ConversationResponse]) = Future.traverse(conversations) { conv =>
+  override def updateConversationsWithDeviceStartMessage(conversations: Seq[ConversationResponse]) = Future.traverse(conversations) { conv =>
     eventScheduler.post(conv.id) {
       for {
         (_, created) <- updateConversations(Seq(conv))
@@ -282,12 +289,107 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
       (convs.toSeq, created)
   }
 
-  def setConversationArchived(id: ConvId, archived: Boolean) = content.updateConversationArchived(id, archived) flatMap {
-    case Some((_, conv)) =>
-      sync.postConversationState(id, ConversationState(archived = Some(conv.archived), archiveTime = Some(conv.archiveTime))) map { _ => Some(conv) }
-    case None =>
-      Future successful None
+  override def setConversationName(id: ConvId, name: String) = {
+    verbose(s"setConversationName($id, $name)")
+    content.updateConversationName(id, name).flatMap {
+      case Some((_, conv)) if conv.name.contains(name) =>
+        for {
+          syncId <- sync.postConversationName(id, conv.name.getOrElse(""))
+          msg    <- messages.addRenameConversationMessage(id, selfUserId, name).map(_ => Some(conv))
+        } yield Some((syncId, conv))
+      case conv =>
+        warn(s"Conversation name could not be changed for: $id, conv: $conv")
+        Future.successful(None)
+    }
   }
+
+  override def setConversationArchived(id: ConvId, archived: Boolean) =
+    content.updateConversationArchived(id, archived).flatMap {
+      case Some((_, conv)) =>
+        sync
+          .postConversationState(id, ConversationState(archived = Some(conv.archived), archiveTime = Some(conv.archiveTime)))
+          .map(id => Some((id, conv)))
+      case None =>
+        Future.successful(None)
+    }
+
+  override def setConversationMuted(id: ConvId, muted: Boolean) =
+    content.updateConversationMuted(id, muted).flatMap {
+      case Some((_, conv)) =>
+        sync
+          .postConversationState(id, ConversationState(muted = Some(conv.muted), muteTime = Some(conv.muteTime)))
+          .map(id => Some((id, conv)))
+      case None =>
+        Future.successful(None)
+    }
+
+  override def addConversationMembers(conv: ConvId, users: Set[UserId]) = {
+    (for {
+      true   <- canModifyMembers(conv)
+      added  <- membersStorage.add(conv, users) if added.nonEmpty
+      _      <- messages.addMemberJoinMessage(conv, selfUserId, added.map(_.userId))
+      syncId <- sync.postConversationMemberJoin(conv, added.map(_.userId).toSeq)
+    } yield Option(syncId))
+      .recover {
+        case NonFatal(e) =>
+          warn(s"Failed to add members: $users to conv: $conv", e)
+          Option.empty[SyncId]
+      }
+  }
+
+  override def removeConversationMember(conv: ConvId, user: UserId) = {
+    (for {
+      true    <- canModifyMembers(conv)
+      Some(_) <- membersStorage.remove(conv, user)
+      _       <- messages.addMemberLeaveMessage(conv, selfUserId, user)
+      syncId  <- sync.postConversationMemberLeave(conv, user)
+    } yield Some(syncId))
+      .recover {
+        case NonFatal(e) =>
+          warn(s"Failed to remove member: $user from conv: $conv", e)
+          Option.empty[SyncId]
+      }
+  }
+
+  private def canModifyMembers(conv: ConvId) =
+    for {
+      selfActive <- membersStorage.isActiveMember(conv, selfUserId)
+      isGroup    <- isGroupConversation(conv)
+    } yield selfActive && isGroup
+
+  override def leaveConversation(conv: ConvId) = {
+    verbose(s"leaveConversation($conv)")
+    for {
+      _ <- content.setConvActive(conv, active = false)
+      _ <- removeConversationMember(conv, selfUserId)
+      _ <- content.updateConversationArchived(conv, archived = true)
+    } yield {}
+  }
+
+  override def clearConversation(id: ConvId) =
+    content.convById(id) flatMap {
+      case Some(conv) if conv.convType == ConversationType.Group || conv.convType == ConversationType.OneToOne =>
+        verbose(s"clearConversation($conv)")
+
+        content.updateConversationCleared(conv.id, conv.lastEventTime).flatMap {
+          case Some((_, c)) =>
+            val cleared = c.cleared.getOrElse(RemoteInstant.Epoch) //after setting cleared time, this should never be None
+            for {
+              _  <- content.updateConversationLastRead(c.id, cleared)
+              _  <- content.updateConversationArchived(c.id, archived = true)
+              id <- sync.postCleared(c.id, cleared)
+            } yield Some((id, c))
+          case None =>
+            verbose("updateConversationCleared did nothing - already cleared")
+            Future successful None
+        }
+      case Some(conv) =>
+        warn(s"conversation of type ${conv.convType} can not be cleared")
+        Future successful None
+      case None =>
+        warn(s"conversation to be cleared not found: $id")
+        Future successful None
+    }
 
   private def deleteConversation(convId: ConvId) = for {
     _ <- convsStorage.remove(convId)
@@ -295,18 +397,19 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
     _ <- msgContent.deleteMessagesForConversation(convId: ConvId)
   } yield ()
 
-  def forceNameUpdate(id: ConvId) = {
+  override def forceNameUpdate(id: ConvId) = {
     warn(s"forceNameUpdate($id)")
     nameUpdater.forceNameUpdate(id)
   }
 
-  def onMemberAddFailed(conv: ConvId, users: Set[UserId], error: Option[ErrorType], resp: ErrorResponse) = for {
-    _ <- error.fold(Future.successful({}))(e => errors.addErrorWhenActive(ErrorData(e, resp, conv, users)).map(_ => {}))
-    _ <- membersStorage.remove(conv, users)
-    _ <- messages.removeLocalMemberJoinMessage(conv, users)
-  } yield ()
+  override def onMemberAddFailed(conv: ConvId, users: Set[UserId], error: Option[ErrorType], resp: ErrorResponse) =
+    for {
+      _ <- error.fold(Future.successful({}))(e => errors.addErrorWhenActive(ErrorData(e, resp, conv, users)).map(_ => {}))
+      _ <- membersStorage.remove(conv, users)
+      _ <- messages.removeLocalMemberJoinMessage(conv, users)
+    } yield ()
 
-  def isGroupConversation(convId: ConvId) =
+  override def isGroupConversation(convId: ConvId) =
     for {
       Some(conv) <- convsStorage.get(convId)
       res <-
@@ -315,12 +418,12 @@ class ConversationsServiceImpl(teamId:          Option[TeamId],
         else membersStorage.getActiveUsers(convId).map(ms => !(ms.contains(selfUserId) && ms.size == 2))
     } yield res
 
-  def isWithService(convId: ConvId) =
+  override def isWithService(convId: ConvId) =
     membersStorage.getActiveUsers(convId)
       .flatMap(usersStorage.getAll)
       .map(_.flatten.exists(_.isWireBot))
 
-  def setToTeamOnly(convId: ConvId, teamOnly: Boolean) =
+  override def setToTeamOnly(convId: ConvId, teamOnly: Boolean) =
     teamId match {
       case None => Future.successful(Left(ErrorResponse.internalError("Private accounts can't be set to team-only or guest room access modes")))
       case Some(_) =>

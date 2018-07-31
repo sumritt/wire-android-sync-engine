@@ -72,7 +72,7 @@ class MessageSendingSpec extends AndroidFreeSpec { test =>
       (sync.postMessage _).expects(msgData.id, conv.id, msgData.editTime).once().returning(Future.successful(syncId))
       val convsUi = stubService()
 
-      val msg = Await.result(convsUi.sendTextMessage(conv.id, "test"), 1.second).get
+      val msg = Await.result(convsUi.sendTextMessage(conv.id, "test"), 1.second)._2
       msg.contentString shouldEqual "test"
     }
   }

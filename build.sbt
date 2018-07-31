@@ -6,6 +6,7 @@ import sbt.Keys.{libraryDependencies, _}
 import sbt._
 import sbtassembly.MappingSet
 import SharedSettings._
+import android.{AndroidApp, AndroidLib}
 
 val MajorVersion = "127"
 val MinorVersion = "1" // hotfix release
@@ -181,7 +182,8 @@ lazy val actors: Project = project.in(file("actors") / "base")
       "org.robolectric" % "android-all" % RobolectricVersion % Provided,
       "org.threeten" % "threetenbp" % "1.3",
       "com.typesafe.akka" %% "akka-actor" % "2.3.14",
-      "com.typesafe.akka" %% "akka-remote" % "2.3.14"
+      "com.typesafe.akka" %% "akka-remote" % "2.3.14",
+      "net.java.dev.jna" % "jna" % "4.4.0"
     )
   )
 
@@ -291,81 +293,95 @@ lazy val testutils = project.in(file("tests") / "utils")
 //    )
 //  )
 //
-//lazy val actors_app: Project = project.in(file("actors") / "remote_app")
+
+//lazy val integration = project.in(file("tests") / "integration")
 //  .enablePlugins(AutomateHeaderPlugin).settings(licenseHeaders)
-//  .enablePlugins(AndroidApp).dependsOn(zmessaging)
-////  .configs(IntegrationTest)
-//  .dependsOn(testutils)
-////  .dependsOn(integration % "it -> test")
-//  .settings(Defaults.itSettings: _*)
-//  .settings(nativeLibsSettings: _*)
-//  .settings(publishSettings: _*)
-//  .settings (
-//    name := "zmessaging-actor",
-//    crossPaths := false,
-//    fork := true,
-//    typedResources := false,
-//    parallelExecution in IntegrationTest := true,
-//    javaOptions in IntegrationTest ++= Seq(libraryPathOption(nativeLibs.value)),
-//    test in IntegrationTest <<= (test in IntegrationTest).dependsOn(assembly),
-//    assemblyMergeStrategy in assembly := {
-//      case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
-//      case PathList("META-INF", "LICENSE") => MergeStrategy.discard
-//      case "application.conf"            => MergeStrategy.concat
-//      case "reference.conf"              => MergeStrategy.concat
-//      case x if x.startsWith("com/waz/znet/ClientWrapper") => MergeStrategy.last
-//      case _ => MergeStrategy.first
-//    },
-//    scalacOptions ++= Seq("-feature", "-target:jvm-1.7", "-Xfuture", "-deprecation", "-Yinline-warnings", "-Ywarn-unused-import", "-encoding", "UTF-8"),
-//    actorsResources := {
-//      val out = target.value / "actors_res.zip"
-//      val manifest = baseDirectory.value / "src" / "main" / "AndroidManifest.xml"
-//      val res = zmessaging.base / "src" / "main" / "res"
-//      val mappings = {
-//        val libs = nativeLibs.value.files.flatMap(d => (d ** "*").get).filter(_.isFile)
-//        val distinct = { // remove duplicate libs, always select first one, as nativeLibs are first on the path
-//          val names = new scala.collection.mutable.HashSet[String]()
-//          libs.filter { f => names.add(f.getName) }
-//        }
-//        println(s"libs: $libs\n distinct: $distinct")
-//        distinct.map(f => (f, s"/libs/${f.getName}")) ++ ((res ** "*").get pair rebase(res, "/res")) :+ (manifest, "/AndroidManifest.xml")
-//      }
-//      IO.zip(mappings, out)
-//      out
-//    },
-//    assemblyJarName := s"remote-actor-${version.value}.jar",
-//    assembledMappings in assembly := {
-//      val res = actorsResources.value
-//      assert(res.exists() && res.length() > 0)
-//      (assembledMappings in assembly).value :+ MappingSet(None, Vector((actorsResources.value, s"actor_res.jar")))
-//    },
-//    addArtifact(artifact in Compile, assembly),
-//    publishArtifact in (Compile, packageBin) := false,
-//    publishArtifact in (Compile, packageDoc) := false,
-//    pomPostProcess := { (node: scala.xml.Node) =>
-//      new scala.xml.transform.RuleTransformer(new scala.xml.transform.RewriteRule {
-//        override def transform(n: scala.xml.Node): scala.xml.NodeSeq =
-//          n.nameToString(new StringBuilder).toString match {
-//            case "dependency" | "repository" => scala.xml.NodeSeq.Empty
-//            case _ => n
-//          }
-//      }).transform(node).head
-//    },
-//    unmanagedResourceDirectories in Compile ++= Seq(root.base / "src/it/resources"),
-//    mainClass in assembly := Some("com.waz.RemoteActorApp"),
-//    libraryDependencies ++= Seq(
-//      "org.apache.httpcomponents" % "httpclient" % "4.5.1", // to override version included in robolectric
-//      "junit" % "junit" % "4.8.2", //to override version included in robolectric
-//      "org.apache.httpcomponents" % "httpcore" % "4.4.4",
-//      "org.robolectric" % "android-all" % RobolectricVersion,
-//      Deps.avs,
-//      "org.threeten" % "threetenbp" % "1.3",
-//      "com.wire.cryptobox" % "cryptobox-jni" % "0.8.2",
-//      "com.android.support" % "support-v4" % supportLibVersion % Provided,
-//      "com.google.android.gms" % "play-services-base" % "7.8.0" % Provided exclude("com.android.support", "support-v4"),
-//      "com.google.android.gms" % "play-services-gcm" % "7.8.0" % Provided
-//    )
+//  .androidBuildWith(zmessaging)
+//  .dependsOn(testutils % Test)
+//  .configs(RegressionTest)
+//  .settings(testSettings: _*)
+//  .settings(integrationCredentials: _*)
+//  .settings(
+//    parallelExecution in Test := false,
+//    libraryDependencies += "javax.mail" % "mail" % "1.4.7",
+//    testOptions in RegressionTest += Tests.Argument(TestFrameworks.ScalaTest, "-l", "com.waz.tags.FixMe")
 //  )
+lazy val actors_app: Project = project.in(file("actors") / "remote_app")
+  .enablePlugins(AutomateHeaderPlugin).settings(licenseHeaders)
+  .enablePlugins(AndroidApp)
+  .dependsOn(zmessaging)
+  .configs(IntegrationTest)
+  .dependsOn(testutils)
+//  .dependsOn(integration % "it -> test")
+  .settings(Defaults.itSettings: _*)
+  .settings(nativeLibsSettings: _*)
+  .settings(publishSettings: _*)
+  .settings (
+    name := "zmessaging-actor",
+    crossPaths := false,
+    fork := true,
+    typedResources := false,
+    parallelExecution in IntegrationTest := true,
+    javaOptions in IntegrationTest ++= Seq(libraryPathOption(nativeLibs.value)),
+    test in IntegrationTest <<= (test in IntegrationTest).dependsOn(assembly),
+    assemblyMergeStrategy in assembly := {
+      case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
+      case PathList("META-INF", "LICENSE") => MergeStrategy.discard
+      case "application.conf"            => MergeStrategy.concat
+      case "reference.conf"              => MergeStrategy.concat
+      case x if x.startsWith("com/waz/znet/ClientWrapper") => MergeStrategy.last
+      case _ => MergeStrategy.first
+    },
+    scalacOptions ++= Seq("-feature", "-target:jvm-1.7", "-Xfuture", "-deprecation", "-Yinline-warnings", "-Ywarn-unused-import", "-encoding", "UTF-8"),
+    actorsResources := {
+      val out = target.value / "actors_res.zip"
+      val manifest = baseDirectory.value / "src" / "main" / "AndroidManifest.xml"
+      val res = zmessaging.base / "src" / "main" / "res"
+      val mappings = {
+        val libs = nativeLibs.value.files.flatMap(d => (d ** "*").get).filter(_.isFile)
+        val distinct = { // remove duplicate libs, always select first one, as nativeLibs are first on the path
+          val names = new scala.collection.mutable.HashSet[String]()
+          libs.filter { f => names.add(f.getName) }
+        }
+        println(s"libs: $libs\n distinct: $distinct")
+        distinct.map(f => (f, s"/libs/${f.getName}")) ++ ((res ** "*").get pair rebase(res, "/res")) :+ (manifest, "/AndroidManifest.xml")
+      }
+      IO.zip(mappings, out)
+      out
+    },
+    assemblyJarName := s"remote-actor-${version.value}.jar",
+    assembledMappings in assembly := {
+      val res = actorsResources.value
+      assert(res.exists() && res.length() > 0)
+      (assembledMappings in assembly).value :+ MappingSet(None, Vector((actorsResources.value, s"actor_res.jar")))
+    },
+    addArtifact(artifact in Compile, assembly),
+    publishArtifact in (Compile, packageBin) := false,
+    publishArtifact in (Compile, packageDoc) := false,
+    pomPostProcess := { (node: scala.xml.Node) =>
+      new scala.xml.transform.RuleTransformer(new scala.xml.transform.RewriteRule {
+        override def transform(n: scala.xml.Node): scala.xml.NodeSeq =
+          n.nameToString(new StringBuilder).toString match {
+            case "dependency" | "repository" => scala.xml.NodeSeq.Empty
+            case _ => n
+          }
+      }).transform(node).head
+    },
+    unmanagedResourceDirectories in Compile ++= Seq(root.base / "src/it/resources"),
+    mainClass in assembly := Some("com.waz.RemoteActorApp"),
+    libraryDependencies ++= Seq(
+      "org.apache.httpcomponents" % "httpclient" % "4.5.1", // to override version included in robolectric
+      "junit" % "junit" % "4.8.2", //to override version included in robolectric
+      "org.apache.httpcomponents" % "httpcore" % "4.4.4",
+      "org.robolectric" % "android-all" % RobolectricVersion,
+      Deps.avs,
+      "org.threeten" % "threetenbp" % "1.3",
+      "com.wire.cryptobox" % "cryptobox-jni" % "0.8.2",
+      "com.android.support" % "support-v4" % supportLibVersion % Provided,
+      "com.google.android.gms" % "play-services-base" % "7.8.0" % Provided exclude("com.android.support", "support-v4"),
+      "com.google.android.gms" % "play-services-gcm" % "7.8.0" % Provided
+    )
+  )
 
 lazy val macrosupport = project
   .enablePlugins(AutomateHeaderPlugin).settings(licenseHeaders)
