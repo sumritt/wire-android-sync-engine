@@ -140,7 +140,7 @@ class DeviceActor(val deviceName: String,
       override val cameraFailedSig = Signal[Boolean](false)
     }
 
-    override lazy val mediaManager = new MediaManagerService {
+    lazy val mediaManager = new MediaManagerService {
       override def mediaManager = Future.failed(new Exception("No media manager available in actors"))
       override def soundIntensity = Signal.empty[IntensityLevel]
       override def isSpeakerOn = Signal.empty[Boolean]

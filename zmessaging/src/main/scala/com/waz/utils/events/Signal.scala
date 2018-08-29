@@ -48,12 +48,17 @@ object Signal {
   def and(sources: Signal[Boolean]*): Signal[Boolean] = new FoldLeftSignal[Boolean, Boolean](sources: _*)(true)(_ && _)
   def or(sources: Signal[Boolean]*): Signal[Boolean] = new FoldLeftSignal[Boolean, Boolean](sources: _*)(false)(_ || _)
 
-  def sequence[A](sources: Signal[A]*): Signal[Seq[A]] = new ProxySignal[Seq[A]](sources: _*) {
-    override protected def computeValue(current: Option[Seq[A]]): Option[Seq[A]] = {
-      val res = sources map { _.value }
-      if (res.exists(_.isEmpty)) None else Some(res.flatten)
+  def traverse[A, B](in: Seq[A])(f: A => Signal[B]): Signal[Seq[B]] = {
+    val sources = in.map(f)
+    new ProxySignal[Seq[B]](sources: _*) {
+      override protected def computeValue(current: Option[Seq[B]]): Option[Seq[B]] = {
+        val res = sources map { _.value }
+        if (res.exists(_.isEmpty)) None else Some(res.flatten)
+      }
     }
   }
+
+  def sequence[A](sources: Signal[A]*): Signal[Seq[A]] = traverse(sources)(identity)
 
   def future[A](future: Future[A]): Signal[A] = returning(new Signal[A]) { signal =>
     future.onSuccess {
@@ -158,6 +163,7 @@ class Signal[A](@volatile protected[events] var value: Option[A] = None) extends
       pf.andThen(Some(_)).applyOrElse(v, { _: A => None })
     }
   }
+  def optional: Signal[Option[A]] = this.map(Option(_)).orElse(Signal.const(None))
   def foreach(f: A => Unit)(implicit eventContext: EventContext): Subscription = apply(f)
   def flatMap[B](f: A => Signal[B]): Signal[B] = new FlatMapSignal[A, B](this, f)
   def flatten[B](implicit evidence: A <:< Signal[B]): Signal[B] = flatMap(x => x)

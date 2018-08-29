@@ -98,6 +98,26 @@ class SignalSpec extends AndroidFreeSpec {
     }
   }
 
+  feature("Companion object methods") {
+
+    scenario("Traverse") {
+      var received = Vector[Seq[Int]]()
+      val capture = (value: Seq[Int]) => received = received :+ value
+
+      val s = List.fill(3)(Signal(0))
+
+      val fm = Signal.traverse(s)(identity)
+      fm(capture)
+
+      s(0) ! 1
+      s(1) ! 2
+      s(2) ! 3
+
+      received shouldEqual Vector(Seq(0, 0, 0), Seq(1, 0, 0), Seq(1, 2, 0), Seq(1, 2, 3))
+    }
+
+  }
+
   feature("Caching") {
     scenario("Don't send the same value twice") {
       val s = Signal(1)
