@@ -40,8 +40,6 @@ import com.waz.service.AccountManager.ClientRegistrationState.Registered
 import com.waz.service._
 import com.waz.service.assets.AssetService.RawAssetInput.{ByteInput, UriInput}
 import com.waz.service.call.FlowManagerService
-import com.waz.service.conversation.ConversationsUiService
-import com.waz.testutils.Implicits._
 import com.waz.threading.{DispatchQueueStats, _}
 import com.waz.ui.UiModule
 import com.waz.utils.RichFuture.traverseSequential
