@@ -24,10 +24,9 @@ import com.waz.model._
 import com.waz.sync.client.AssetClient2.Retention
 import org.threeten.bp.Duration
 
-//TODO Maybe we can remove encryption here
 case class RawAsset[+T <: AssetDetails](
     id: AssetId,
-    uri: URI,
+    source: URI,
     sha: Sha256,
     mime: Mime,
     size: Long,
@@ -70,10 +69,10 @@ object Asset {
 }
 
 sealed trait AssetDetails
-case object BlobDetails                                                                 extends AssetDetails
-case class ImageDetails(dimensions: Dim2, tag: ImageTag)                                extends AssetDetails
-case class AudioDetails(duration: Duration, loudness: Loudness)                         extends AssetDetails
-case class VideoDetails(dimensions: Dim2, duration: Duration) extends AssetDetails
+case object BlobDetails                                         extends AssetDetails
+case class ImageDetails(dimensions: Dim2, tag: ImageTag)        extends AssetDetails
+case class AudioDetails(duration: Duration, loudness: Loudness) extends AssetDetails
+case class VideoDetails(dimensions: Dim2, duration: Duration)   extends AssetDetails
 
 sealed trait ImageTag
 case object Preview extends ImageTag
