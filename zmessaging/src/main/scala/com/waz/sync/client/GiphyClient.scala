@@ -47,7 +47,7 @@ class GiphyClientImpl(implicit
 
   import GiphyClient._
   import HttpClient.dsl._
-  import HttpClient.AutoDerivation._
+  import HttpClient.AutoDerivationOld._
   import com.waz.threading.Threading.Implicits.Background
 
   private implicit val giphySeqDeserializer: RawBodyDeserializer[Seq[(Option[AssetData], AssetData)]] =
