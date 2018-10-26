@@ -17,7 +17,7 @@
  */
 package com.waz.service.assets2
 
-import com.waz.model.Mime
+import com.waz.model.{Mime, RawAssetId}
 import com.waz.sync.client.AssetClient2.Retention
 
 trait Codec[From, To] {
@@ -84,6 +84,8 @@ trait StorageCodecs {
   }
 
   implicit val AssetIdCodec: Codec[AssetId, String] = Codec.create(_.str, AssetId.apply)
+
+  implicit val RawAssetIdCodec: Codec[RawAssetId, String] = Codec.create(_.value, RawAssetId.apply)
 
   implicit val Sha256Codec: Codec[Sha256, Array[Byte]] = Codec.create(_.bytes, Sha256.apply)
 

@@ -110,6 +110,17 @@ object AccountId extends (String => AccountId) {
   }
 }
 
+case class RawAssetId(value: String) extends AnyVal
+
+object RawAssetId extends (String => RawAssetId) {
+  def apply(): RawAssetId = Id.random()
+
+  implicit object Id extends Id[RawAssetId] {
+    override def random() = RawAssetId(Uid().toString)
+    override def decode(str: String) = RawAssetId(str)
+  }
+}
+
 case class AssetId(str: String) {
   override def toString: String = str
 }

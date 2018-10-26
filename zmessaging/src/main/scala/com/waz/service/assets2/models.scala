@@ -25,16 +25,18 @@ import com.waz.sync.client.AssetClient2.Retention
 import org.threeten.bp.Duration
 
 case class RawAsset[+T <: AssetDetails](
-    id: AssetId,
+    id: RawAssetId,
     source: URI,
     sha: Sha256,
     mime: Mime,
+    uploaded: Long,
     size: Long,
     retention: Retention,
     public: Boolean,
     encryption: Encryption,
     details: T,
-    @deprecated convId: Option[RConvId]
+    @deprecated convId: Option[RConvId],
+    assetId: Option[AssetId]
 )
 
 case class Asset[+T <: AssetDetails](

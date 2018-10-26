@@ -19,7 +19,7 @@ package com.waz.service.assets2
 
 import android.content.Context
 import com.waz.db.{ColumnBuilders, Dao}
-import com.waz.model.AssetId
+import com.waz.model.RawAssetId
 import com.waz.service.assets2.Asset._
 import com.waz.service.assets2.RawAssetStorage.RawAssetDao
 import com.waz.utils.TrimmingLruCache.Fixed
@@ -28,19 +28,19 @@ import com.waz.utils.{CachedStorage2, CirceJSONSupport, DbStorage2, InMemoryStor
 
 import scala.concurrent.ExecutionContext
 
-trait RawAssetStorage extends ReactiveStorage2[AssetId, RawAsset[General]]
+trait RawAssetStorage extends ReactiveStorage2[RawAssetId, RawAsset[General]]
 
 class RawAssetStorageImpl(context: Context, db: DB, ec: ExecutionContext) extends ReactiveStorageImpl2(
-  new CachedStorage2[AssetId, RawAsset[General]](
+  new CachedStorage2(
     new DbStorage2(RawAssetDao)(ec, db),
-    new InMemoryStorage2[AssetId, RawAsset[General]](new TrimmingLruCache(context, Fixed(8)), RawAssetDao.idExtractor)(ec)
+    new InMemoryStorage2[RawAssetId, RawAsset[General]](new TrimmingLruCache(context, Fixed(8)), RawAssetDao.idExtractor)(ec)
   )(ec)
 ) with RawAssetStorage
 
 object RawAssetStorage {
 
   //TODO Actually we do not need DAO classes. We can generate them using 'shapeless'.
-  object RawAssetDao extends Dao[RawAsset[General], AssetId]
+  object RawAssetDao extends Dao[RawAsset[General], RawAssetId]
     with ColumnBuilders[RawAsset[General]]
     with StorageCodecs
     with CirceJSONSupport {
@@ -49,6 +49,7 @@ object RawAssetStorage {
     val Source     = asText(_.source)('source)
     val Sha        = asBlob(_.sha)('sha)
     val Mime       = asText(_.mime)('mime)
+    val Uploaded   = long(_.uploaded)('uploaded)
     val Size       = long(_.size)('size)
     val Retention  = asInt(_.retention)('retention)
     val Public     = bool(_.public)('public)
@@ -56,9 +57,13 @@ object RawAssetStorage {
     val Type       = text(getAssetTypeString)('type)
     val Details    = asText(_.details)('details)
     val ConvId     = asTextOpt(_.convId)('conversation_id)
+    val AssetId    = asTextOpt(_.assetId)('asset_id)
 
     override val idCol = Id
-    override val table = Table("RawAssets", Id, Source, Sha, Mime, Size, Retention, Public, Encryption, Type, Details, ConvId)
+    override val table = Table(
+      "RawAssets",
+      Id, Source, Sha, Mime, Uploaded, Size, Retention, Public, Encryption, Type, Details, ConvId, AssetId
+    )
 
     private val Image = "image"
     private val Audio = "audio"
@@ -66,7 +71,7 @@ object RawAssetStorage {
     private val Blob  = "blob"
 
     override def apply(implicit cursor: DBCursor): RawAsset[General] = {
-      RawAsset(Id, Source, Sha, Mime, Size, Retention, Public, Encryption, Details, ConvId)
+      RawAsset(Id, Source, Sha, Mime, Uploaded, Size, Retention, Public, Encryption, Details, ConvId, AssetId)
     }
 
     private def getAssetTypeString(asset: RawAsset[General]): String = asset.details match {
