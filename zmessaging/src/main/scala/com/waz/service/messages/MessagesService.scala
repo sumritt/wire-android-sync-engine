@@ -25,9 +25,10 @@ import com.waz.api.impl.ErrorResponse
 import com.waz.content.{EditHistoryStorage, MembersStorage, MessagesStorage, UsersStorage}
 import com.waz.model.ConversationData.ConversationType
 import com.waz.model.GenericContent._
-import com.waz.model.GenericMessage.TextMessage
 import com.waz.model.{Mention, MessageId, _}
 import com.waz.service._
+import com.waz.service.assets2.Asset.General
+import com.waz.service.assets2.RawAsset
 import com.waz.service.conversation.ConversationsContentUpdater
 import com.waz.service.otr.VerificationStateUpdater.{ClientUnverified, MemberAdded, VerificationChange}
 import com.waz.sync.SyncServiceHandle
@@ -46,7 +47,7 @@ import scala.util.Success
 trait MessagesService {
   def addTextMessage(convId: ConvId, content: String, mentions: Seq[Mention] = Nil, exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addKnockMessage(convId: ConvId, selfUserId: UserId): Future[MessageData]
-  def addAssetMessage(convId: ConvId, asset: AssetData, exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
+  def addAssetMessage(convId: ConvId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addLocationMessage(convId: ConvId, content: Location): Future[MessageData]
 
   def addMissedCallMessage(rConvId: RConvId, from: UserId, time: RemoteInstant): Future[Option[MessageData]]
@@ -183,15 +184,26 @@ class MessagesServiceImpl(selfUserId:   UserId,
     updater.addLocalMessage(MessageData(id, convId, Type.LOCATION, selfUserId, protos = Seq(GenericMessage(id.uid, content))))
   }
 
-  override def addAssetMessage(convId: ConvId, asset: AssetData, exp: Option[Option[FiniteDuration]] = None) = {
-    val tpe = asset match {
-      case AssetData.IsImage() => Message.Type.ASSET
-      case AssetData.IsVideo() => Message.Type.VIDEO_ASSET
-      case AssetData.IsAudio() => Message.Type.AUDIO_ASSET
-      case _                   => Message.Type.ANY_ASSET
+  override def addAssetMessage(convId: ConvId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData] = {
+    import assets2.Asset
+    import com.waz.model.GenericContent.{Asset => GenericAsset}
+
+    val tpe = asset.details match {
+      case _: Asset.Image => Message.Type.ASSET
+      case _: Asset.Video => Message.Type.VIDEO_ASSET
+      case _: Asset.Audio => Message.Type.AUDIO_ASSET
+      case _              => Message.Type.ANY_ASSET
     }
-    val mid = MessageId(asset.id.str)
-    updater.addLocalMessage(MessageData(mid, convId, tpe, selfUserId, protos = Seq(GenericMessage(mid.uid, Asset(asset)))), exp = exp)
+    val msgId = MessageId(asset.id.str)
+    val msgData = MessageData(
+      msgId,
+      convId,
+      tpe,
+      selfUserId,
+      content = Seq(),
+      protos = Seq(GenericMessage(msgId.uid, GenericAsset(asset, None)))
+    )
+    updater.addLocalMessage(msgData, exp = exp)
   }
 
   override def addRenameConversationMessage(convId: ConvId, from: UserId, name: String) = {

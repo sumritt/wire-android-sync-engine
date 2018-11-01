@@ -134,7 +134,10 @@ case class MessageData(id:            MessageId              = MessageId(),
   def canRecall(convId: ConvId, userId: UserId) =
     msgType != RECALLED && this.convId == convId && this.userId == userId && !isSystemMessage
 
-  def isAssetMessage = MessageData.IsAsset(msgType)
+  def isAssetMessage: Boolean = msgType match {
+    case ANY_ASSET | VIDEO_ASSET | AUDIO_ASSET | ASSET => true
+    case _ => false
+  }
 
   def isEphemeral = ephemeral.isDefined
 
@@ -181,7 +184,7 @@ case class MessageContent(tpe:        Message.Part.Type,
                           content:    String,
                           richMedia:  Option[MediaAssetData],
                           openGraph:  Option[OpenGraphData],
-                          asset:      Option[AssetId],
+                          asset:      Option[AssetIdGeneral],
                           width:      Int,
                           height:     Int,
                           syncNeeded: Boolean,
@@ -192,7 +195,7 @@ case class MessageContent(tpe:        Message.Part.Type,
   override def toString: String = s"MessageContent($tpe, ${content.take(4)}..., $richMedia, $openGraph, $asset, $width, $height, $syncNeeded, $mentions)"
 }
 
-object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData], Option[OpenGraphData], Option[AssetId], Int, Int, Boolean, Seq[Mention]) => MessageContent) {
+object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData], Option[OpenGraphData], Option[AssetIdGeneral], Int, Int, Boolean, Seq[Mention]) => MessageContent) {
 
   import MediaAssetDataProtocol._
 
@@ -201,7 +204,7 @@ object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData
   def apply(tpe: Message.Part.Type,
             content: String,
             openGraph: Option[OpenGraphData] = None,
-            asset: Option[AssetId] = None,
+            asset: Option[AssetIdGeneral] = None,
             width: Int = 0, height: Int = 0,
             syncNeeded: Boolean = false,
             mentions: Seq[Mention] = Nil): MessageContent = {
@@ -227,7 +230,7 @@ object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData
         if (tpe == Message.Part.Type.SPOTIFY || tpe == Message.Part.Type.SOUNDCLOUD || tpe == Message.Part.Type.YOUTUBE) Some(MediaAssetData.empty(tpe)) else None
       }
 
-      MessageContent(tpe, 'content, richMedia, opt[OpenGraphData]('openGraph), decodeOptId[AssetId]('asset), 'width, 'height, 'syncNeeded, mentions)
+      MessageContent(tpe, 'content, richMedia, opt[OpenGraphData]('openGraph), decodeOptString('asset).map(AssetIdGeneral.decode), 'width, 'height, 'syncNeeded, mentions)
     }
   }
 
@@ -246,7 +249,7 @@ object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData
       o.put("type", ContentTypeCodec.encode(v.tpe))
       if (v.content != "") o.put("content", v.content)
       v.richMedia foreach (m => o.put("richMedia", MediaAssetEncoder(m)))
-      v.asset.foreach { id => o.put("asset", id.str) }
+      v.asset.foreach { id => o.put("asset", AssetIdGeneral.encode(id)) }
       v.openGraph foreach { og => o.put("openGraph", OpenGraphData.Encoder(og)) }
       if (v.width != 0) o.put("width", v.width)
       if (v.height != 0) o.put("height", v.height)
@@ -481,14 +484,6 @@ object MessageData extends ((MessageId, ConvId, Message.Type, UserId, Seq[Messag
     }
 
   def textContent(message: String): Seq[MessageContent] = Seq(RichMediaContentParser.textMessageContent(message))
-
-  object IsAsset {
-    def apply(tpe: Message.Type): Boolean = unapply(tpe)
-    def unapply(tpe: Message.Type): Boolean = tpe match {
-      case ANY_ASSET | VIDEO_ASSET | AUDIO_ASSET | ASSET => true
-      case _ => false
-    }
-  }
 
   private val UTF_16_CHARSET  = Charset.forName("UTF-16")
 

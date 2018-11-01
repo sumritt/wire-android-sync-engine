@@ -181,9 +181,8 @@ class MessagesSyncHandler(selfUserId: UserId,
     }
 
     import Message.Type._
-
     def post: ErrorOr[RemoteInstant] = msg.msgType match {
-      case MessageData.IsAsset() => Cancellable(UploadTaskKey(msg.assetId))(uploadAsset(conv, msg)).future
+      case _ if msg.isAssetMessage => Cancellable(UploadTaskKey(msg.assetId))(uploadAsset(conv, msg)).future
       case KNOCK => otrSync.postOtrMessage(conv.id, GenericMessage(msg.id.uid, msg.ephemeral, Proto.Knock()))
       case TEXT | TEXT_EMOJI_ONLY => postTextMessage().map(_.map(_.time))
       case RICH_MEDIA =>
@@ -267,8 +266,8 @@ class MessagesSyncHandler(selfUserId: UserId,
                 assetSync.uploadAssetData(prev.id, retention = retention).flatMap {
                   case Right(updated) =>
                     postAssetMessage(asset, Some(updated)).map {
-                      case (Right(_)) => Right(Some(updated))
-                      case (Left(err)) => Left(err)
+                      case Right(_) => Right(Some(updated))
+                      case Left(err) => Left(err)
                     }
                   case Left(err) => CancellableFuture successful Left(err)
                 }

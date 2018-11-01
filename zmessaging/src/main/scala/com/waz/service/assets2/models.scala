@@ -19,14 +19,24 @@ package com.waz.service.assets2
 
 import java.net.URI
 
+import android.media.ExifInterface
 import com.waz.cache2.CacheService.Encryption
 import com.waz.model._
 import com.waz.sync.client.AssetClient2.Retention
+import com.waz.utils.wrappers.Bitmap
 import org.threeten.bp.Duration
 
-case class RawAsset[+T <: AssetDetails](
+sealed trait ContentForUpload
+object ContentForUpload {
+  case class LocalSource(uri: URI)                                                            extends ContentForUpload
+  case class Bytes(bytes: Array[Byte])                                                        extends ContentForUpload
+  case class BitmapInput(bitmap: Bitmap, orientation: Int = ExifInterface.ORIENTATION_NORMAL) extends ContentForUpload
+}
+
+case class RawAsset[+T <: RawAssetDetails](
     id: RawAssetId,
     source: URI,
+    name: String,
     sha: Sha256,
     mime: Mime,
     uploaded: Long,
@@ -35,9 +45,18 @@ case class RawAsset[+T <: AssetDetails](
     public: Boolean,
     encryption: Encryption,
     details: T,
-    @deprecated convId: Option[RConvId],
+    uploadStatus: UploadStatus,
     assetId: Option[AssetId]
 )
+
+sealed trait UploadStatus
+object UploadStatus {
+  case object NotStarted extends UploadStatus
+  case object InProgress extends UploadStatus
+  case object Done       extends UploadStatus
+  case object Cancelled  extends UploadStatus
+  case object Failed     extends UploadStatus
+}
 
 case class Asset[+T <: AssetDetails](
     id: AssetId,
@@ -51,11 +70,13 @@ case class Asset[+T <: AssetDetails](
 )
 
 object Asset {
-  type General = AssetDetails
-  type Blob    = BlobDetails.type
-  type Image   = ImageDetails
-  type Audio   = AudioDetails
-  type Video   = VideoDetails
+  type RawGeneral = RawAssetDetails
+  type NotReady   = DetailsNotReady.type
+  type General    = AssetDetails
+  type Blob       = BlobDetails.type
+  type Image      = ImageDetails
+  type Audio      = AudioDetails
+  type Video      = VideoDetails
 
   def apply(assetId: AssetId, token: Option[AssetToken], rawAsset: RawAsset[General]): Asset[General] =
     Asset(
@@ -66,11 +87,14 @@ object Asset {
       localSource = None,
       preview = None,
       details = rawAsset.details,
-      convId = rawAsset.convId
+      convId = None
     )
 }
 
-sealed trait AssetDetails
+sealed trait RawAssetDetails
+case object DetailsNotReady extends RawAssetDetails
+
+sealed trait AssetDetails                                       extends RawAssetDetails
 case object BlobDetails                                         extends AssetDetails
 case class ImageDetails(dimensions: Dim2, tag: ImageTag)        extends AssetDetails
 case class AudioDetails(duration: Duration, loudness: Loudness) extends AssetDetails
