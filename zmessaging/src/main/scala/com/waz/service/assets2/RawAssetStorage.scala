@@ -46,7 +46,7 @@ object RawAssetStorage {
     with CirceJSONSupport {
 
     val Id           = asText(_.id)('_id, "PRIMARY KEY")
-    val Source       = asText(_.source)('source)
+    val Source       = asText(_.localSource)('source)
     val Name         = text(_.name)('name)
     val Sha          = asBlob(_.sha)('sha)
     val Mime         = asText(_.mime)('mime)
@@ -59,6 +59,7 @@ object RawAssetStorage {
     val Details      = asText(_.details)('details)
     val UploadStatus = asInt(_.uploadStatus)('upload_status)
     val AssetId      = asTextOpt(_.assetId)('asset_id)
+    val MessageId    = asText(_.messageId)('message_id)
 
     override val idCol = Id
     override val table = Table(
@@ -73,7 +74,7 @@ object RawAssetStorage {
     private val NotReady = "not_ready"
 
     override def apply(implicit cursor: DBCursor): RawAsset[RawGeneral] = {
-      RawAsset(Id, Source, Name, Sha, Mime, Uploaded, Size, Retention, Public, Encryption, Details, UploadStatus, AssetId)
+      RawAsset(Id, Source, Name, Sha, Mime, Uploaded, Size, Retention, Public, Encryption, Details, UploadStatus, AssetId, MessageId)
     }
 
     private def getAssetTypeString(asset: RawAsset[RawGeneral]): String = asset.details match {

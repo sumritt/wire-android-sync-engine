@@ -33,6 +33,7 @@ import com.waz.service.conversation.ConversationsContentUpdater
 import com.waz.service.otr.VerificationStateUpdater.{ClientUnverified, MemberAdded, VerificationChange}
 import com.waz.sync.SyncServiceHandle
 import com.waz.sync.client.AssetClient.Retention
+import com.waz.sync.client.{AssetClient2, AssetClient2Impl}
 import com.waz.threading.{CancellableFuture, Threading}
 import com.waz.utils.RichFuture.traverseSequential
 import com.waz.utils._
@@ -47,7 +48,7 @@ import scala.util.Success
 trait MessagesService {
   def addTextMessage(convId: ConvId, content: String, mentions: Seq[Mention] = Nil, exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addKnockMessage(convId: ConvId, selfUserId: UserId): Future[MessageData]
-  def addAssetMessage(convId: ConvId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
+  def addAssetMessage(convId: ConvId, msgId: MessageId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addLocationMessage(convId: ConvId, content: Location): Future[MessageData]
 
   def addMissedCallMessage(rConvId: RConvId, from: UserId, time: RemoteInstant): Future[Option[MessageData]]
@@ -79,6 +80,7 @@ trait MessagesService {
   def messageSent(convId: ConvId, msg: MessageData): Future[Option[MessageData]]
   def messageDeliveryFailed(convId: ConvId, msg: MessageData, error: ErrorResponse): Future[Option[MessageData]]
   def retentionPolicy(convData: ConversationData): CancellableFuture[Retention]
+  def retentionPolicy2(convData: ConversationData): Future[AssetClient2.Retention]
 }
 
 class MessagesServiceImpl(selfUserId:   UserId,
@@ -184,7 +186,10 @@ class MessagesServiceImpl(selfUserId:   UserId,
     updater.addLocalMessage(MessageData(id, convId, Type.LOCATION, selfUserId, protos = Seq(GenericMessage(id.uid, content))))
   }
 
-  override def addAssetMessage(convId: ConvId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData] = {
+  override def addAssetMessage(convId: ConvId,
+                               msgId: MessageId,
+                               asset: RawAsset[General],
+                               exp: Option[Option[FiniteDuration]] = None): Future[MessageData] = {
     import assets2.Asset
     import com.waz.model.GenericContent.{Asset => GenericAsset}
 
@@ -194,7 +199,6 @@ class MessagesServiceImpl(selfUserId:   UserId,
       case _: Asset.Audio => Message.Type.AUDIO_ASSET
       case _              => Message.Type.ANY_ASSET
     }
-    val msgId = MessageId(asset.id.str)
     val msgData = MessageData(
       msgId,
       convId,
@@ -388,6 +392,7 @@ class MessagesServiceImpl(selfUserId:   UserId,
         else msg
       }
 
+  //TODO Remove this method and use retentionPolicy2 instead
   override def retentionPolicy(convData: ConversationData): CancellableFuture[Retention] = {
     def checkConv(convId: ConvId) =
       members
@@ -405,4 +410,22 @@ class MessagesServiceImpl(selfUserId:   UserId,
     }
     CancellableFuture.lift(result.head)
   }
+
+  override def retentionPolicy2(convData: ConversationData): Future[AssetClient2.Retention] = {
+    import AssetClient2.Retention
+
+    if (teamId.isDefined || convData.team.isDefined) {
+      members
+        .activeMembers(convData.id).head
+        .flatMap(memberIds => usersStorage.getAll(memberIds))
+        .map(_.forall(_.exists(_.teamId.isDefined)))
+        .map {
+          case true => Retention.EternalInfrequentAccess
+          case false => Retention.Expiring
+        }
+    } else {
+      Future.successful(Retention.Expiring)
+    }
+  }
+
 }
