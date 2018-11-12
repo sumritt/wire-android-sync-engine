@@ -48,19 +48,9 @@ trait AssetService {
                             messageId: Option[MessageId]): Future[RawAsset[General]]
 }
 
-object AssetService {
-
-  case class MetaData(mime: Mime, name: Option[String], size: Option[Long])
-
-  trait MetaDataExtractor {
-    def extractMetadata(uri: URI): Future[MetaData]
-  }
-
-}
-
 class AssetServiceImpl(assetsStorage: AssetStorage,
                        rawAssetStorage: RawAssetStorage,
-                       metadataService: MetadataService,
+                       metadataService: AssetDetailsService,
                        previewService: AssetPreviewService,
                        uriHelper: UriHelper,
                        cache: CacheService,

@@ -17,10 +17,13 @@
  */
 package com.waz.service
 
+import java.io.File
+
 import android.content.{ComponentCallbacks2, Context}
 import com.softwaremill.macwire._
 import com.waz.ZLog._
 import com.waz.api.ContentSearchQuery
+import com.waz.cache2.LruFileCacheServiceImpl
 import com.waz.content.{MembersStorageImpl, UsersStorageImpl, ZmsDatabase, _}
 import com.waz.model._
 import com.waz.model.otr.ClientId
@@ -45,6 +48,7 @@ import com.waz.sync.queue.{SyncContentUpdater, SyncContentUpdaterImpl}
 import com.waz.threading.{CancellableFuture, SerialDispatchQueue, Threading}
 import com.waz.ui.UiModule
 import com.waz.utils.Locales
+import com.waz.utils.events.EventContext
 import com.waz.utils.wrappers.{AndroidContext, DB, GoogleApi}
 import com.waz.znet2.http.HttpClient
 import com.waz.znet2.http.Request.UrlCreator
@@ -52,6 +56,7 @@ import com.waz.znet2.{AuthRequestInterceptor, OkHttpWebSocketFactory}
 import org.threeten.bp.{Clock, Duration, Instant}
 
 import scala.concurrent.{Future, Promise}
+import scala.concurrent.duration._
 import scala.util.Try
 
 class ZMessagingFactory(global: GlobalModule) {
@@ -68,6 +73,14 @@ class ZMessagingFactory(global: GlobalModule) {
   def cryptobox(userId: UserId, storage: StorageModule) = new CryptoBoxService(global.context, userId, global.metadata, storage.userPrefs)
 
   def zmessaging(teamId: Option[TeamId], clientId: ClientId, accountManager: AccountManager, storage: StorageModule, cryptoBox: CryptoBoxService) = wire[ZMessaging]
+}
+
+trait Assets2Module {
+  import assets2._
+
+  def uriHelper: UriHelper
+  def assetDetailsService: AssetDetailsService
+  def assetPreviewService: AssetPreviewService
 }
 
 class StorageModule(context: Context, val userId: UserId, globalPreferences: GlobalPreferences) {
@@ -152,6 +165,8 @@ class ZMessaging(val teamId: Option[TeamId], val clientId: ClientId, account: Ac
   def otrClientsStorage = storage.otrClientsStorage
   def membersStorage    = storage.membersStorage
   def assetsStorage     = storage.assetsStorage
+  def assetStorage                    = storage.assetStorage
+  def rawAssetStorage               = storage.rawAssetStorage
   def reactionsStorage  = storage.reactionsStorage
   def notifStorage      = storage.notifStorage
   def convsStorage      = storage.convsStorage
@@ -168,6 +183,7 @@ class ZMessaging(val teamId: Option[TeamId], val clientId: ClientId, account: Ac
   lazy val youtubeClient      = new YouTubeClientImpl()(urlCreator, httpClient, authRequestInterceptor)
   lazy val soundCloudClient   = new SoundCloudClientImpl()(urlCreator, httpClient, authRequestInterceptor)
   lazy val assetClient        = new AssetClientImpl(cache)(urlCreator, httpClientForLongRunning, authRequestInterceptor)
+  lazy val asset2Client       = new AssetClient2Impl()(urlCreator, httpClientForLongRunning, authRequestInterceptor)
   lazy val usersClient        = new UsersClientImpl()(urlCreator, httpClient, authRequestInterceptor)
   lazy val convClient         = new ConversationsClientImpl()(urlCreator, httpClient, authRequestInterceptor)
   lazy val teamClient         = new TeamsClientImpl()(urlCreator, httpClient, authRequestInterceptor)
@@ -249,6 +265,21 @@ class ZMessaging(val teamId: Option[TeamId], val clientId: ClientId, account: Ac
 
   lazy val eventPipeline: EventPipeline = new EventPipelineImpl(Vector(), eventScheduler.enqueue)
 
+  lazy val assets2Module = ZMessaging.assets2Module
+  lazy val assetService = new assets2.AssetServiceImpl(
+    storage.assetStorage,
+    storage.rawAssetStorage,
+    assets2Module.assetDetailsService,
+    assets2Module.assetPreviewService,
+    assets2Module.uriHelper,
+    new LruFileCacheServiceImpl(
+      cacheDirectory = new File(context.getExternalCacheDir, s"assets_${selfUserId.str}"),
+      directorySizeThreshold = 1024 * 1024 * 200,
+      sizeCheckingInterval = 30.seconds
+    )(Threading.BlockingIO, EventContext.Global),
+    asset2Client
+  )
+
   lazy val eventScheduler = {
 
     new EventScheduler(
@@ -329,6 +360,7 @@ object ZMessaging { self =>
   private var prefs:     GlobalPreferences = _
   private var googleApi: GoogleApi = _
   private var backend:   BackendConfig = BackendConfig.StagingBackend
+  private var assets2Module: Assets2Module = _
 
   //var for tests - and set here so that it is globally available without the need for DI
   var clock = Clock.systemUTC()
@@ -350,7 +382,7 @@ object ZMessaging { self =>
   def currentBeDrift = beDrift.currentValue.getOrElse(Duration.ZERO)
 
   //TODO - we should probably just request the entire GlobalModule from the UI here
-  def onCreate(context: Context, beConfig: BackendConfig, prefs: GlobalPreferences, googleApi: GoogleApi) = {
+  def onCreate(context: Context, beConfig: BackendConfig, prefs: GlobalPreferences, googleApi: GoogleApi, assets2: Assets2Module) = {
     Threading.assertUiThread()
 
     if (this.currentUi == null) {
@@ -358,6 +390,7 @@ object ZMessaging { self =>
       this.backend = beConfig
       this.prefs = prefs
       this.googleApi = googleApi
+      this.assets2Module = assets2
       currentUi = ui
       currentGlobal = _global
       currentAccounts = currentGlobal.accountsService
