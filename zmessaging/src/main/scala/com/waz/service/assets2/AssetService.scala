@@ -21,13 +21,12 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.net.URI
 
 import com.waz.ZLog.ImplicitTag._
-import com.waz.ZLog.{debug, verbose}
+import com.waz.ZLog._
 import com.waz.cache2.CacheService
 import com.waz.cache2.CacheService.{Encryption, NoEncryption}
 import com.waz.model._
 import com.waz.model.errors._
-import com.waz.service.assets2.Asset.{General, Image, RawGeneral, Video}
-import com.waz.service.assets2.RawPreview.{NotUploaded, WithoutPreview}
+import com.waz.service.assets2.Asset.{General, RawGeneral, Video}
 import com.waz.sync.client.AssetClient2
 import com.waz.sync.client.AssetClient2.{AssetContent, Metadata, Retention}
 import com.waz.threading.CancellableFuture
@@ -139,10 +138,21 @@ class AssetServiceImpl(assetsStorage: AssetStorage,
 
   override def uploadAsset(rawAssetId: RawAssetId): CancellableFuture[Asset[General]] = {
     for {
-      rawAsset <- CancellableFuture.lift(rawAssetStorage.get(rawAssetId))
+      _ <- CancellableFuture.lift(Future.successful(()), () => {
+        info(s"Asset uploading cancelled: $rawAssetId")
+        rawAssetStorage.update(rawAssetId, _.copy(uploadStatus = UploadStatus.Cancelled))
+      })
+      rawAsset <- CancellableFuture.lift(rawAssetStorage.get(rawAssetId).flatMap { rawAsset =>
+        rawAsset.details match {
+          case details: General =>
+            CancellableFuture.successful(rawAsset.copy(details = details))
+          case details =>
+            CancellableFuture.failed(FailedExpectationsError(s"We expect that metadata already extracted. Got $details"))
+        }
+      })
       _ <- CancellableFuture.lift(rawAssetStorage.update(rawAsset.id, _.copy(uploaded = 0, uploadStatus = UploadStatus.InProgress)))
       metadata = Metadata(rawAsset.public, rawAsset.retention)
-      is <- cache.get(cacheKey(rawAsset))(NoEncryption)
+      is <- cache.get(cacheKey(rawAsset))(NoEncryption).toCancellable
       content = AssetContent(rawAsset.mime, () => is, Some(rawAsset.size)) //TODO Maybe AssetContent should take Future[InputStream]
       uploadCallback: ProgressCallback = (p: Progress) => {
         rawAssetStorage.save(rawAsset.copy(uploaded = p.progress))
@@ -174,20 +184,15 @@ class AssetServiceImpl(assetsStorage: AssetStorage,
 
     if (!shouldAssetContainPreview) {
       for {
-        updatedRawAsset <- Future.successful(rawAsset.copy(preview = WithoutPreview))
+        updatedRawAsset <- Future.successful(rawAsset.copy(preview = RawPreviewEmpty))
         _ <- rawAssetStorage.save(updatedRawAsset)
       } yield updatedRawAsset
     } else {
       for {
         content <- previewService.extractPreview(rawAsset, cache.get(cacheKey(rawAsset.id))(rawAsset.encryption))
         previewRawAsset <- createRawAsset(content, rawAsset.encryption, rawAsset.public, rawAsset.retention)
-        previewDetails <- previewRawAsset.details match {
-          case details: Image => Future.successful(PreviewImageDetails(details.dimensions, details.tag))
-          case details => Future.failed(FailedExpectationsError(s"Expected image asset details but got: $details"))
-        }
-        updatedRawAsset = rawAsset.copy(preview = NotUploaded(previewRawAsset.id))
-        updatedPreviewRawAsset = previewRawAsset.copy(details = previewDetails)
-        _ <- rawAssetStorage.saveAll(List(updatedRawAsset, updatedPreviewRawAsset))
+        updatedRawAsset = rawAsset.copy(preview = RawPreviewNotUploaded(previewRawAsset.id))
+        _ <- rawAssetStorage.save(updatedRawAsset)
       } yield updatedRawAsset
     }
   }
@@ -244,7 +249,7 @@ class AssetServiceImpl(assetsStorage: AssetStorage,
           name = content.name,
           sha = encryptedContentSha,
           mime = content.mime,
-          preview = RawPreview.NotReady,
+          preview = RawPreviewNotReady,
           uploaded = 0,
           size = encryptedContentSize,
           retention = retention,

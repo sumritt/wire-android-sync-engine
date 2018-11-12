@@ -26,6 +26,7 @@ import com.waz.model._
 import com.waz.model.otr.ClientId
 import com.waz.service.EventScheduler.{Interleaved, Sequential, Stage}
 import com.waz.service.assets._
+import com.waz.service.assets2.AssetStorage
 import com.waz.service.call._
 import com.waz.service.conversation._
 import com.waz.service.downloads.{AssetLoader, AssetLoaderImpl}
@@ -44,7 +45,7 @@ import com.waz.sync.queue.{SyncContentUpdater, SyncContentUpdaterImpl}
 import com.waz.threading.{CancellableFuture, SerialDispatchQueue, Threading}
 import com.waz.ui.UiModule
 import com.waz.utils.Locales
-import com.waz.utils.wrappers.{AndroidContext, GoogleApi}
+import com.waz.utils.wrappers.{AndroidContext, DB, GoogleApi}
 import com.waz.znet2.http.HttpClient
 import com.waz.znet2.http.Request.UrlCreator
 import com.waz.znet2.{AuthRequestInterceptor, OkHttpWebSocketFactory}
@@ -82,8 +83,12 @@ class StorageModule(context: Context, val userId: UserId, globalPreferences: Glo
   lazy val msgDeletions:      MsgDeletionStorage      = wire[MsgDeletionStorageImpl]
   lazy val searchQueryCache:  SearchQueryCacheStorage = wire[SearchQueryCacheStorageImpl]
   lazy val msgEdits:          EditHistoryStorage      = wire[EditHistoryStorageImpl]
-}
 
+  lazy val db2: DB = DB(db.dbHelper.getWritableDatabase)
+  lazy val rawAssetStorage: assets2.RawAssetStorage   = new assets2.RawAssetStorageImpl(context, db2)(Threading.BlockingIO)
+  lazy val assetStorage: assets2.AssetStorage         = new assets2.AssetStorageImpl(context, db2, Threading.BlockingIO)
+
+}
 
 class ZMessaging(val teamId: Option[TeamId], val clientId: ClientId, account: AccountManager, val storage: StorageModule, val cryptoBox: CryptoBoxService) {
 
