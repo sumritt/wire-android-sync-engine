@@ -24,7 +24,7 @@ import com.waz.api.IConversation.{Access, AccessRole}
 import com.waz.api.Message
 import com.waz.api.NetworkMode.{OFFLINE, WIFI}
 import com.waz.api.impl._
-import com.waz.cache2.CacheService.AES_CBC_Encryption
+import com.waz.service.assets2.AES_CBC_Encryption
 import com.waz.content._
 import com.waz.model.ConversationData.{ConversationType, getAccessAndRoleForGroupConv}
 import com.waz.model.GenericContent.{Location, MsgEdit}

@@ -23,7 +23,7 @@ import java.security.{DigestOutputStream, MessageDigest}
 import android.util.Base64
 import com.waz.api.impl.ErrorResponse
 import com.waz.cache.{Expiration, LocalData}
-import com.waz.cache2.CacheService.NoEncryption
+import com.waz.service.assets2.NoEncryption
 import com.waz.model._
 import com.waz.service.assets2.Asset
 import com.waz.service.assets2.Asset.General
