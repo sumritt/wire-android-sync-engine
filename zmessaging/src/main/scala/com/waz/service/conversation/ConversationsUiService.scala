@@ -24,7 +24,7 @@ import com.waz.api.IConversation.{Access, AccessRole}
 import com.waz.api.Message
 import com.waz.api.NetworkMode.{OFFLINE, WIFI}
 import com.waz.api.impl._
-import com.waz.service.assets2.AES_CBC_Encryption
+import com.waz.service.assets2._
 import com.waz.content._
 import com.waz.model.ConversationData.{ConversationType, getAccessAndRoleForGroupConv}
 import com.waz.model.GenericContent.{Location, MsgEdit}
@@ -34,7 +34,6 @@ import com.waz.service.AccountsService.InForeground
 import com.waz.service.ZMessaging.currentBeDrift
 import com.waz.service._
 import com.waz.service.assets2.Asset.{General, Video}
-import com.waz.service.assets2.{AssetService, ContentForUpload, RawAsset}
 import com.waz.service.conversation.ConversationsService.generateTempConversationId
 import com.waz.service.messages.{MessagesContentUpdater, MessagesService}
 import com.waz.service.tracking.TrackingService
