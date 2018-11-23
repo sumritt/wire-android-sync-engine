@@ -17,6 +17,8 @@
  */
 package com.waz.model
 
+import java.net.URL
+
 import android.database.DatabaseUtils.queryNumEntries
 import android.database.sqlite.SQLiteQueryBuilder
 import com.waz.ZLog.ImplicitTag._
@@ -62,7 +64,8 @@ case class MessageData(id:            MessageId              = MessageId(),
                        ephemeral:     Option[FiniteDuration] = None,
                        expiryTime:    Option[LocalInstant]   = None, // local expiration time
                        expired:       Boolean                = false,
-                       duration:      Option[FiniteDuration] = None //for successful calls and message_timer changes
+                       duration:      Option[FiniteDuration] = None, //for successful calls and message_timer changes
+                       assetId:       Option[AssetIdGeneral] = None
                       ) {
 
   override def toString: String =
@@ -93,8 +96,6 @@ case class MessageData(id:            MessageId              = MessageId(),
     case _ if msgType == api.Message.Type.RICH_MEDIA => content.map(_.content).mkString(" ")
     case _ => content.headOption.fold("")(_.content)
   }
-
-  def assetId = AssetId(id.str)
 
   def isLocal = state == Message.Status.DEFAULT || state == Message.Status.PENDING || state == Message.Status.FAILED || state == Message.Status.FAILED_READ
 
@@ -270,7 +271,7 @@ object MessageContent extends ((Message.Part.Type, String, Option[MediaAssetData
   }
 }
 
-object MessageData extends ((MessageId, ConvId, Message.Type, UserId, Seq[MessageContent], Seq[GenericMessage], Boolean, Set[UserId], Option[UserId], Option[String], Option[String], Message.Status, RemoteInstant, LocalInstant, RemoteInstant, Option[FiniteDuration], Option[LocalInstant], Boolean, Option[FiniteDuration]) => MessageData) {
+object MessageData extends ((MessageId, ConvId, Message.Type, UserId, Seq[MessageContent], Seq[GenericMessage], Boolean, Set[UserId], Option[UserId], Option[String], Option[String], Message.Status, RemoteInstant, LocalInstant, RemoteInstant, Option[FiniteDuration], Option[LocalInstant], Boolean, Option[FiniteDuration], Option[AssetIdGeneral]) => MessageData) {
   val Empty = new MessageData(MessageId(""), ConvId(""), Message.Type.UNKNOWN, UserId(""))
   val Deleted = new MessageData(MessageId(""), ConvId(""), Message.Type.UNKNOWN, UserId(""), state = Message.Status.DELETED)
   val isUserContent = Set(TEXT, TEXT_EMOJI_ONLY, ASSET, ANY_ASSET, VIDEO_ASSET, AUDIO_ASSET, RICH_MEDIA, LOCATION)
@@ -468,7 +469,7 @@ object MessageData extends ((MessageId, ConvId, Message.Type, UserId, Seq[Messag
 
           returning(linkEnd(link.urlOffset)) { end =>
             if (end > link.urlOffset) {
-              val openGraph = Option(link.getArticle).map { a => OpenGraphData(a.title, a.summary, None, "", Option(a.permanentUrl).filter(_.nonEmpty).map(URI.parse)) }
+              val openGraph = Option(link.getArticle).map { a => OpenGraphData(a.title, a.summary, None, "", Option(a.permanentUrl).filter(_.nonEmpty).map(new URL(_))) }
               res += MessageContent(Message.Part.Type.WEB_LINK, message.substring(link.urlOffset, end), openGraph)
             }
           }

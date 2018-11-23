@@ -28,9 +28,9 @@ import scala.util.Try
 
 sealed trait Content {
   def openInputStream(uriHelper: UriHelper): Try[InputStream] = this match {
+    case Content.Bytes(_, bytes) => Try { new ByteArrayInputStream(bytes) }
     case Content.Uri(uri) => uriHelper.openInputStream(uri)
     case Content.File(_, file) => Try { new FileInputStream(file) }
-    case Content.Bytes(_, bytes) => Try { new ByteArrayInputStream(bytes) }
   }
 }
 
@@ -59,6 +59,14 @@ case object RawPreviewEmpty                              extends RawPreview
 case class RawPreviewNotUploaded(rawAssetId: RawAssetId) extends RawPreview
 case class RawPreviewUploaded(assetId: AssetId)          extends RawPreview
 
+sealed trait GeneralAsset {
+  def id: AssetIdGeneral
+  def mime: Mime
+  def name: String
+  def size: Long
+  def details: RawAssetDetails
+}
+
 case class RawAsset[+T <: RawAssetDetails](
     id: RawAssetId,
     localSource: Option[LocalSource],
@@ -73,19 +81,31 @@ case class RawAsset[+T <: RawAssetDetails](
     encryption: Encryption,
     encryptionSalt: Option[Salt],
     details: T,
-    uploadStatus: UploadStatus,
+    status: AssetUploadStatus,
     assetId: Option[AssetId],
     @deprecated("This one to one relation should be removed", "")
     messageId: Option[MessageId]
-)
+) extends GeneralAsset
 
-sealed trait UploadStatus
-object UploadStatus {
-  case object NotStarted extends UploadStatus
-  case object InProgress extends UploadStatus
-  case object Done       extends UploadStatus
-  case object Cancelled  extends UploadStatus
-  case object Failed     extends UploadStatus
+sealed trait AssetStatus
+object AssetStatus {
+  case object Done extends AssetUploadStatus with AssetDownloadStatus
+}
+
+sealed trait AssetUploadStatus extends AssetStatus
+object AssetUploadStatus {
+  case object NotStarted extends AssetUploadStatus
+  case object InProgress extends AssetUploadStatus
+  case object Cancelled  extends AssetUploadStatus
+  case object Failed     extends AssetUploadStatus
+}
+
+sealed trait AssetDownloadStatus extends AssetStatus
+object AssetDownloadStatus {
+  case object NotStarted extends AssetDownloadStatus
+  case object InProgress extends AssetDownloadStatus
+  case object Cancelled  extends AssetDownloadStatus
+  case object Failed     extends AssetDownloadStatus
 }
 
 case class Asset[+T <: AssetDetails](
@@ -103,7 +123,20 @@ case class Asset[+T <: AssetDetails](
     messageId: Option[MessageId],
     @deprecated
     convId: Option[RConvId]
-)
+) extends GeneralAsset
+
+case class RemoteData(remoteId: AssetId, token: Option[AssetToken], sha: Sha256, encryption: Encryption)
+
+case class InProgressAsset(
+    id: InProgressAssetId,
+    mime: Mime,
+    name: String,
+    preview: Option[AssetId],
+    details: AssetDetails,
+    downloaded: Long,
+    size: Long,
+    status: AssetDownloadStatus
+) extends GeneralAsset
 
 object Asset {
   type RawGeneral = RawAssetDetails
@@ -113,6 +146,22 @@ object Asset {
   type Image      = ImageDetails
   type Audio      = AudioDetails
   type Video      = VideoDetails
+
+  def create(inProgressAsset: InProgressAsset, remoteData: RemoteData): Asset[General] =
+    Asset(
+      id = remoteData.remoteId,
+      token = remoteData.token,
+      sha = remoteData.sha,
+      mime = inProgressAsset.mime,
+      encryption = remoteData.encryption,
+      localSource = None,
+      preview = inProgressAsset.preview,
+      name = inProgressAsset.name,
+      size = inProgressAsset.size,
+      details = inProgressAsset.details,
+      messageId = None,
+      convId = None
+    )
 
   def create(assetId: AssetId, token: Option[AssetToken], rawAsset: RawAsset[General]): Asset[General] =
     Asset(
@@ -146,4 +195,3 @@ case object Medium  extends ImageTag
 case object Empty   extends ImageTag
 
 case class Loudness(levels: Vector[Float])
-
