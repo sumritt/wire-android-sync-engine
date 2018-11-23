@@ -436,6 +436,7 @@ object MessageData extends
 
     def findQuotesOf(msgId: MessageId)(implicit db: DB) = list(db.query(table.name, null, s"${Quote.name} = '$msgId'", null, null, null, null))
 
+    //TODO: to remove eventually
     def msgIndexCursorFiltered(conv: ConvId, types: Seq[TypeFilter], limit: Option[Int] = None)(implicit db: DB): DBCursor = {
       val builder = new SQLiteQueryBuilder()
       val q = builder.buildUnionQuery(
@@ -445,6 +446,23 @@ object MessageData extends
             s")").toArray,
         null, limit.fold[String](null)(_.toString))
       db.rawQuery(q, null)
+    }
+
+    def msgIndexCursorFiltered2(conv: ConvId, types: Seq[TypeFilter], limit: Option[Int] = None)(implicit db: DB): DBCursor = {
+      val builder = new SQLiteQueryBuilder()
+      val q = builder.buildUnionQuery(
+        types.map(mt =>
+          s"SELECT * FROM (" +
+            SQLiteQueryBuilder.buildQueryString(false, table.name, null, s"${Conv.name} = '$conv' AND ${Type.name} = '${Type(mt.msgType)}' AND ${Expired.name} = 0", null, null, s"${Time.name} DESC", mt.limit.fold[String](null)(_.toString)) +
+            s")").toArray,
+        null, limit.fold[String](null)(_.toString))
+      db.rawQuery(q, null)
+    }
+
+    def countByType(conv: ConvId, types: Seq[Message.Type])(implicit db: DB): Map[Message.Type, Long] = {
+      types.map { tpe =>
+        tpe -> queryNumEntries(db, table.name, s"""${Conv.name} = '${Conv(conv)}' AND ${Type.name} = '${Type(tpe)}' AND ${Expired.name} = 0""")
+      }.toMap
     }
   }
 
