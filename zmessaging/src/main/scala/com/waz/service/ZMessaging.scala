@@ -46,16 +46,16 @@ import com.waz.sync.otr.{OtrClientsSyncHandler, OtrClientsSyncHandlerImpl, OtrSy
 import com.waz.sync.queue.{SyncContentUpdater, SyncContentUpdaterImpl}
 import com.waz.threading.{CancellableFuture, SerialDispatchQueue, Threading}
 import com.waz.ui.UiModule
-import com.waz.utils.Locales
 import com.waz.utils.events.EventContext
 import com.waz.utils.wrappers.{AndroidContext, DB, GoogleApi}
+import com.waz.utils.{IoUtils, Locales}
 import com.waz.znet2.http.HttpClient
 import com.waz.znet2.http.Request.UrlCreator
 import com.waz.znet2.{AuthRequestInterceptor, OkHttpWebSocketFactory}
 import org.threeten.bp.{Clock, Duration, Instant}
 
-import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration._
+import scala.concurrent.{Future, Promise}
 import scala.util.Try
 
 class ZMessagingFactory(global: GlobalModule) {
@@ -266,22 +266,29 @@ class ZMessaging(val teamId: Option[TeamId], val clientId: ClientId, account: Ac
   lazy val eventPipeline: EventPipeline = new EventPipelineImpl(Vector(), eventScheduler.enqueue)
 
   lazy val assets2Module = ZMessaging.assets2Module
-  lazy val assetService = new assets2.AssetServiceImpl(
-    storage.assetStorage,
-    storage.rawAssetStorage,
-    storage.inProgressAssetStorage,
-    assets2Module.assetDetailsService,
-    assets2Module.assetPreviewService,
-    assets2Module.uriHelper,
-    new AssetContentCacheImpl(
-      cacheDirectory = new File(context.getExternalCacheDir, s"assets_${selfUserId.str}"),
-      directorySizeThreshold = 1024 * 1024 * 200,
-      sizeCheckingInterval = 30.seconds
-    )(Threading.BlockingIO, EventContext.Global),
-    new RawAssetContentCacheImpl(new File(context.getCacheDir, s"raw_assets_${selfUserId.str}"))(Threading.BlockingIO),
-    asset2Client
-  )
+  lazy val assetService = {
+    val lruCacheDirectory = new File(context.getCacheDir, s"assets_${selfUserId.str}")
+    val rawCacheDirectory = new File(context.getCacheDir, s"raw_assets_${selfUserId.str}")
 
+    IoUtils.createDirectory(lruCacheDirectory)
+    IoUtils.createDirectory(rawCacheDirectory)
+
+    new assets2.AssetServiceImpl(
+      storage.assetStorage,
+      storage.rawAssetStorage,
+      storage.inProgressAssetStorage,
+      assets2Module.assetDetailsService,
+      assets2Module.assetPreviewService,
+      assets2Module.uriHelper,
+      new AssetContentCacheImpl(
+        cacheDirectory = lruCacheDirectory,
+        directorySizeThreshold = 1024 * 1024 * 200L,
+        sizeCheckingInterval = 30.seconds
+      )(Threading.BlockingIO, EventContext.Global),
+      new RawAssetContentCacheImpl(rawCacheDirectory)(Threading.BlockingIO),
+      asset2Client
+    )
+  }
   lazy val eventScheduler = {
 
     new EventScheduler(

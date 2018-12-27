@@ -39,6 +39,9 @@ import com.waz.model.SearchQueryCache.SearchQueryCacheDao
 import com.waz.model.UserData.UserDataDao
 import com.waz.model.otr.UserClients.UserClientsDao
 import com.waz.model.sync.SyncJob.SyncJobDao
+import com.waz.service.assets2.AssetStorageImpl.AssetDao
+import com.waz.service.assets2.InProgressAssetStorage.InProgressAssetDao
+import com.waz.service.assets2.RawAssetStorage.RawAssetDao
 import com.waz.service.push.ReceivedPushData.ReceivedPushDataDao
 
 class ZMessagingDB(context: Context, dbName: String) extends DaoDB(context.getApplicationContext, dbName, null, DbVersion, daos, migrations) {
@@ -52,7 +55,7 @@ class ZMessagingDB(context: Context, dbName: String) extends DaoDB(context.getAp
 }
 
 object ZMessagingDB {
-  val DbVersion = 110
+  val DbVersion = 111
 
   lazy val daos = Seq (
     UserDataDao, SearchQueryCacheDao, AssetDataDao, ConversationDataDao,
@@ -60,7 +63,8 @@ object ZMessagingDB {
     SyncJobDao, NotificationDataDao, ErrorDataDao, ReceivedPushDataDao,
     ContactHashesDao, ContactsOnWireDao, UserClientsDao, LikingDao,
     ContactsDao, EmailAddressesDao, PhoneNumbersDao, MsgDeletionDao,
-    EditHistoryDao, MessageContentIndexDao, PushNotificationEventsDao
+    EditHistoryDao, MessageContentIndexDao, PushNotificationEventsDao,
+    RawAssetDao, InProgressAssetDao, AssetDao
   )
 
   lazy val migrations = Seq(
@@ -257,6 +261,12 @@ object ZMessagingDB {
       db.execSQL("UPDATE ConversationsCopy SET muted_status = 2 WHERE _id in (SELECT _id FROM Conversations WHERE Conversations.muted = 1);") // muted_status == 2 => only mentions are displayed
       db.execSQL("DROP TABLE Conversations;")
       db.execSQL("ALTER TABLE ConversationsCopy RENAME TO Conversations;")
+    },
+    Migration(110, 111) { db =>
+      db.execSQL("ALTER TABLE Messages ADD COLUMN asset_id TEXT DEFAULT null")
+      db.execSQL(RawAssetDao.table.createSql)
+      db.execSQL(InProgressAssetDao.table.createSql)
+      db.execSQL(AssetDao.table.createSql)
     }
   )
 }

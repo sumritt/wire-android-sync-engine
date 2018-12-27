@@ -17,8 +17,6 @@
  */
 package com.waz.model
 
-import java.util.Date
-
 import android.util.Base64
 import com.waz.ZLog.ImplicitTag._
 import com.waz.ZLog._
@@ -37,7 +35,6 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 
 sealed trait Event {
-  import Event._
 
   //FIXME do we still need this separation?
   var localTime: LocalInstant = LocalInstant.Epoch
@@ -113,8 +110,6 @@ case class IdentityChangedError(from: UserId, sender: ClientId) extends OtrError
 case class UnknownOtrErrorEvent(json: JSONObject) extends OtrError
 
 case class OtrErrorEvent(convId: RConvId, time: RemoteInstant, from: UserId, error: OtrError) extends MessageEvent
-
-case class GenericAssetEvent(convId: RConvId, time: RemoteInstant, from: UserId, content: GenericMessage, dataId: RAssetId, data: Option[Array[Byte]]) extends MessageEvent
 
 case class TypingEvent(convId: RConvId, time: RemoteInstant, from: UserId, isTyping: Boolean) extends ConversationEvent
 
@@ -254,7 +249,6 @@ object ConversationEvent {
 
           //Note, the following events are not from the backend, but are the result of decrypting and re-encoding conversation.otr-message-add events - hence the different name for `convId
         case "conversation.generic-message"      => GenericMessageEvent('convId, time, 'from, 'content)
-        case "conversation.generic-asset"        => GenericAssetEvent('convId, time, 'from, 'content, 'dataId, decodeOptByteString('data))
         case "conversation.otr-error"            => OtrErrorEvent('convId, time, 'from, decodeOtrError('error))
         case _ =>
           error(s"unhandled event: $js")
@@ -306,14 +300,6 @@ object MessageEvent {
       event match {
         case GenericMessageEvent(convId, time, from, content) =>
           setFields(json, convId, time, from, "conversation.generic-message")
-            .put("content", Base64.encodeToString(GenericMessage.toByteArray(content), Base64.NO_WRAP))
-        case GenericAssetEvent(convId, time, from, content, dataId, data) =>
-          setFields(json, convId, time, from, "conversation.generic-asset")
-            .put("dataId", dataId.str)
-            .put("data", data match {
-              case None => null
-              case Some(d) => Base64.encodeToString(d, Base64.NO_WRAP)
-            })
             .put("content", Base64.encodeToString(GenericMessage.toByteArray(content), Base64.NO_WRAP))
         case OtrErrorEvent(convId, time, from, error) =>
           setFields(json, convId, time, from, "conversation.otr-error")

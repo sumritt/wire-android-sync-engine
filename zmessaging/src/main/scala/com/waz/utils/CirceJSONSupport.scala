@@ -18,7 +18,7 @@
 package com.waz.utils
 import java.net.{URI, URL}
 
-import com.waz.model.{AssetToken, RAssetId, Sha256}
+import com.waz.model.{AssetId, AssetToken, RAssetId, Sha256}
 import io.circe.generic.AutoDerivation
 import io.circe.{Decoder, Encoder}
 import org.threeten.bp.{Duration, Instant}
@@ -40,6 +40,7 @@ trait CirceJSONSupport extends AutoDerivation {
   implicit def InstantDecoder: Decoder[Instant] = Decoder[String].map(Instant.parse)
 
   implicit def RAssetIdDecoder: Decoder[RAssetId] = Decoder[String].map(RAssetId.apply)
+  implicit def AssetIdDecoder: Decoder[AssetId] = Decoder[String].map(AssetId.apply)
   implicit def AssetTokenDecoder: Decoder[AssetToken] = Decoder[String].map(AssetToken.apply)
 
 }

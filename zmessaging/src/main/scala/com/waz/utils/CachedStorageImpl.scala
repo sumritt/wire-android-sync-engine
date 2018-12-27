@@ -92,8 +92,10 @@ trait ReactiveStorage2[K, V] extends Storage2[K, V] {
   def onRemoved(key: K): EventStream[K] =
     onDeleted.map(_.view.find(_ == key)).collect { case Some(k) => k }
 
-  def optSignal(key: K): Signal[Option[V]] =
-    Signal.wrap(onChanged(key).map(Option(_)).union(onRemoved(key).map(_ => Option.empty[V])))
+  def optSignal(key: K): Signal[Option[V]] = {
+    val changeOrDelete = onChanged(key).map(Option(_)).union(onRemoved(key).map(_ => Option.empty[V]))
+    new AggregatingSignal[Option[V], Option[V]](changeOrDelete, find(key), { (_, v) => v })
+  }
 
   def signal(key: K): Signal[V] =
     optSignal(key).collect { case Some(v) => v }
@@ -124,8 +126,6 @@ class InMemoryStorage2[K, V](cache: LruCache[K, V],
 class CachedStorage2[K,V](main: Storage2[K,V], cache: Storage2[K,V])
                          (implicit
                           override val ec: ExecutionContext) extends Storage2[K, V] {
-
-  require(main.keyExtractor == cache.keyExtractor)//TODO Think how to make utils explicit
 
   override val keyExtractor: V => K = main.keyExtractor
 

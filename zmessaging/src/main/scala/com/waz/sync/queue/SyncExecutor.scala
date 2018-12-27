@@ -113,7 +113,7 @@ class SyncExecutor(scheduler:   SyncScheduler,
       case SyncResult.Failure(error, false) =>
         warn(s"SyncRequest: $job, failed permanently with error: $error")
         if (error.exists(_.shouldReportError)) {
-          tracking.exception(new RuntimeException(s"Request ${job.request.cmd} failed permanently with error: ${error.map(_.code)}") with NoStackTrace, s"Got fatal error, dropping request: $job\n error: $error")
+          tracking.exception(new RuntimeException(s"Request ${job.request.cmd} failed permanently with error: ${error.map(_.code)} ${error.map(_.message)}") with NoStackTrace, s"Got fatal error, dropping request: $job\n error: $error")
         }
         drop()
       case SyncResult.Failure(error, true) =>

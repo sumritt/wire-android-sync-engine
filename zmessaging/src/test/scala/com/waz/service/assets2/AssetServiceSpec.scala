@@ -17,19 +17,23 @@
  */
 package com.waz.service.assets2
 
-import java.io.{ ByteArrayInputStream, File, FileOutputStream }
+import java.io._
 import java.net.URI
 
+import com.waz.ZLog.ImplicitTag._
+import com.waz.ZLog._
+import com.waz.api.impl.ErrorResponse
 import com.waz.model.errors.NotFoundLocal
-import com.waz.model.{ AssetId, Mime, Sha256 }
-import com.waz.sync.client.AssetClient2
-import com.waz.sync.client.AssetClient2.FileWithSha
+import com.waz.model.{AssetId, Mime, RawAssetId, Sha256}
+import com.waz.service.assets2.Asset.RawGeneral
+import com.waz.sync.client.AssetClient2.{FileWithSha, Retention}
+import com.waz.sync.client.{AssetClient2, AssetClient2Impl}
 import com.waz.threading.CancellableFuture
-import com.waz.utils.{ returning, IoUtils }
-import com.waz.{ FilesystemUtils, ZIntegrationMockSpec }
+import com.waz.utils.{IoUtils, ReactiveStorageImpl2, UnlimitedInMemoryStorage, returning}
+import com.waz.{FilesystemUtils, ZIntegrationMockSpec}
 
 import scala.concurrent.Future
-import scala.util.{ Failure, Random, Success }
+import scala.util.{Failure, Random, Success}
 
 class AssetServiceSpec extends ZIntegrationMockSpec {
 
@@ -41,9 +45,9 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
   private val cache               = mock[AssetContentCache]
   private val rawCache            = mock[RawAssetContentCache]
   private val client              = mock[AssetClient2]
-  private val uriHelper           = mock[UriHelper]
+  private val uriHelperMock       = mock[UriHelper]
 
-  private val testAssetContent = returning(Array.ofDim[Byte](1024))(Random.nextBytes)
+  private val testAssetContent = returning(Array.ofDim[Byte](128))(Random.nextBytes)
 
   private val testAsset = Asset(
     id = AssetId(),
@@ -56,12 +60,22 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
     name = "test_content",
     size = testAssetContent.length,
     details = BlobDetails,
-    messageId = None,
     convId = None
   )
 
-  private val service: AssetService =
-    new AssetServiceImpl(assetStorage, rawAssetStorage, inProgressAssetStorage, assetDetailsService, previewService, uriHelper, cache, rawCache, client)
+  private def service(rawAssetStorage: RawAssetStorage = rawAssetStorage,
+                      client: AssetClient2 = client): AssetService =
+    new AssetServiceImpl(
+      assetStorage,
+      rawAssetStorage,
+      inProgressAssetStorage,
+      assetDetailsService,
+      previewService,
+      uriHelperMock,
+      cache,
+      rawCache,
+      client
+    )
 
   feature("Assets") {
 
@@ -83,7 +97,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       (cache.getStream _).expects(*).once().returns(Future.successful(new ByteArrayInputStream(testAssetContent)))
 
       for {
-        result <- service.loadContent(testAsset, callback = None)
+        result <- service().loadContent(testAsset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
@@ -108,7 +122,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       (cache.getStream _).expects(*).once().returns(Future.successful(new ByteArrayInputStream(testAssetContent)))
 
       for {
-        result <- service.loadContent(testAsset, callback = None)
+        result <- service().loadContent(testAsset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
@@ -120,7 +134,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       (cache.getStream _).expects(*).once().returns(Future.successful(new ByteArrayInputStream(testAssetContent)))
 
       for {
-        result <- service.loadContent(testAsset, callback = None)
+        result <- service().loadContent(testAsset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
@@ -132,7 +146,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
         testAsset.copy(localSource = Some(LocalSource(new URI("www.test"), Sha256.calculate(testAssetContent))))
 
       (assetStorage.find _).expects(*).once().returns(Future.successful(Some(asset)))
-      (uriHelper.openInputStream _)
+      (uriHelperMock.openInputStream _)
         .expects(*)
         .twice()
         .onCall({ _: URI =>
@@ -140,7 +154,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
         })
 
       for {
-        result <- service.loadContent(asset, callback = None)
+        result <- service().loadContent(asset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
@@ -158,7 +172,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       }
 
       (assetStorage.find _).expects(*).once().returns(Future.successful(Some(asset)))
-      (uriHelper.openInputStream _).expects(*).once().returns(Failure(new IllegalArgumentException))
+      (uriHelperMock.openInputStream _).expects(*).once().returns(Failure(new IllegalArgumentException))
       (assetStorage.save _).expects(asset.copy(localSource = None)).once().returns(Future.successful(()))
       (client.loadAssetContent _)
         .expects(asset, *)
@@ -168,7 +182,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       (cache.getStream _).expects(*).once().returns(Future.successful(new ByteArrayInputStream(testAssetContent)))
 
       for {
-        result <- service.loadContent(asset, callback = None)
+        result <- service().loadContent(asset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
@@ -187,7 +201,7 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
 
       (assetStorage.find _).expects(*).once().returns(Future.successful(Some(asset)))
       //emulating file changing
-      (uriHelper.openInputStream _)
+      (uriHelperMock.openInputStream _)
         .expects(*)
         .once()
         .returns(Success(new ByteArrayInputStream(testAssetContent :+ 1.toByte)))
@@ -200,11 +214,61 @@ class AssetServiceSpec extends ZIntegrationMockSpec {
       (cache.getStream _).expects(*).once().returns(Future.successful(new ByteArrayInputStream(testAssetContent)))
 
       for {
-        result <- service.loadContent(asset, callback = None)
+        result <- service().loadContent(asset, callback = None)
         bytes = IoUtils.toByteArray(result)
       } yield {
         bytes shouldBe testAssetContent
       }
+    }
+
+    scenario("upload asset to backend and download it back. check sha") {
+      import com.waz.AuthenticationConfig._
+
+      val encryption = AES_CBC_Encryption.random
+
+      val fakeUri = new URI("https://www.youtube.com")
+      val contentForUpload = ContentForUpload("test_uri_content", Content.Uri(fakeUri))
+
+      (uriHelperMock.openInputStream _).expects(*).anyNumberOfTimes().onCall { _: URI =>
+        Success(new ByteArrayInputStream(testAssetContent))
+      }
+      (uriHelperMock.extractMime _).expects(*).anyNumberOfTimes().returns(Success(Mime.Default))
+      (uriHelperMock.extractSize _).expects(*).anyNumberOfTimes().returns(Success(testAssetContent.length))
+      (uriHelperMock.extractFileName _).expects(*).anyNumberOfTimes().returns(Success("test_file_name"))
+      (assetDetailsService.extract _).expects(*, *).anyNumberOfTimes().returns(Future.successful(BlobDetails))
+      (cache.putStream _).expects(*, *).anyNumberOfTimes().returns(Future.successful(()))
+      (assetStorage.save _).expects(*).anyNumberOfTimes().returns(Future.successful(()))
+      (rawCache.remove _).expects(*).anyNumberOfTimes().returns(Future.successful(()))
+
+      for {
+        _ <- Future.successful(())
+        client = new AssetClient2Impl
+        rawAssetStorage = new ReactiveStorageImpl2(new UnlimitedInMemoryStorage[RawAssetId, RawAsset[RawGeneral]](_.id)) with RawAssetStorage
+        assetService = service(rawAssetStorage, client)
+
+        rawAsset <- assetService.createAndSaveRawAsset(contentForUpload, encryption, public = false, Retention.Persistent, None)
+        asset <- assetService.uploadAsset(rawAsset.id)
+        assetContent <- client.loadAssetContent(asset, None)
+
+        encryptedContent = IoUtils.toByteArray(rawAsset.encryption.encrypt(new ByteArrayInputStream(testAssetContent), rawAsset.encryptionSalt))
+        encryptedSha = Sha256.calculate(new ByteArrayInputStream(encryptedContent)).get
+      } yield {
+        debug(s"Download asset response: $assetContent")
+        assetContent shouldBe an[Right[ErrorResponse, FileWithSha]]
+        val fileWithSha = assetContent.right.get
+
+        debug(s"")
+
+        debug(s"Initial content : ${testAssetContent.mkString(",")}")
+        debug(s"Expected content: ${encryptedContent.mkString(",")}")
+
+        debug(s"Initial content sha: ${Sha256.calculate(testAssetContent)}")
+        debug(s"Expected content sha: $encryptedSha")
+
+        asset.sha shouldBe rawAsset.sha
+        fileWithSha.sha256 shouldBe asset.sha
+      }
+
     }
 
   }

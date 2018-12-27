@@ -205,7 +205,8 @@ class MessagesServiceImpl(selfUserId:   UserId,
       tpe,
       selfUserId,
       content = Seq(),
-      protos = Seq(GenericMessage(msgId.uid, GenericAsset(asset, None)))
+      protos = Seq(GenericMessage(msgId.uid, GenericAsset(asset, None))),
+      assetId = Some(asset.id)
     )
     updater.addLocalMessage(msgData, exp = exp)
   }
