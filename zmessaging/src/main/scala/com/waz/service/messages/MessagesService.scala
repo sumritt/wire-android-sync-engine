@@ -28,7 +28,7 @@ import com.waz.model.GenericContent._
 import com.waz.model.{Mention, MessageId, _}
 import com.waz.service._
 import com.waz.service.assets2.Asset.General
-import com.waz.service.assets2.RawAsset
+import com.waz.service.assets2.UploadAsset
 import com.waz.service.conversation.ConversationsContentUpdater
 import com.waz.service.otr.VerificationStateUpdater.{ClientUnverified, MemberAdded, VerificationChange}
 import com.waz.sync.SyncServiceHandle
@@ -48,7 +48,7 @@ import scala.util.Success
 trait MessagesService {
   def addTextMessage(convId: ConvId, content: String, mentions: Seq[Mention] = Nil, exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addKnockMessage(convId: ConvId, selfUserId: UserId): Future[MessageData]
-  def addAssetMessage(convId: ConvId, msgId: MessageId, asset: RawAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
+  def addAssetMessage(convId: ConvId, msgId: MessageId, asset: UploadAsset[General], exp: Option[Option[FiniteDuration]] = None): Future[MessageData]
   def addLocationMessage(convId: ConvId, content: Location): Future[MessageData]
 
   def addMissedCallMessage(rConvId: RConvId, from: UserId, time: RemoteInstant): Future[Option[MessageData]]
@@ -188,7 +188,7 @@ class MessagesServiceImpl(selfUserId:   UserId,
 
   override def addAssetMessage(convId: ConvId,
                                msgId: MessageId,
-                               asset: RawAsset[General],
+                               asset: UploadAsset[General],
                                exp: Option[Option[FiniteDuration]] = None): Future[MessageData] = {
     import assets2.Asset
     import com.waz.model.GenericContent.{Asset => GenericAsset}

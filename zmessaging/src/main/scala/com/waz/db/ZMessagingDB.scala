@@ -40,8 +40,8 @@ import com.waz.model.UserData.UserDataDao
 import com.waz.model.otr.UserClients.UserClientsDao
 import com.waz.model.sync.SyncJob.SyncJobDao
 import com.waz.service.assets2.AssetStorageImpl.AssetDao
-import com.waz.service.assets2.InProgressAssetStorage.InProgressAssetDao
-import com.waz.service.assets2.RawAssetStorage.RawAssetDao
+import com.waz.service.assets2.DownloadAssetStorage.DownloadAssetDao
+import com.waz.service.assets2.UploadAssetStorage.UploadAssetDao
 import com.waz.service.push.ReceivedPushData.ReceivedPushDataDao
 
 class ZMessagingDB(context: Context, dbName: String) extends DaoDB(context.getApplicationContext, dbName, null, DbVersion, daos, migrations) {
@@ -64,7 +64,7 @@ object ZMessagingDB {
     ContactHashesDao, ContactsOnWireDao, UserClientsDao, LikingDao,
     ContactsDao, EmailAddressesDao, PhoneNumbersDao, MsgDeletionDao,
     EditHistoryDao, MessageContentIndexDao, PushNotificationEventsDao,
-    RawAssetDao, InProgressAssetDao, AssetDao
+    UploadAssetDao, DownloadAssetDao, AssetDao
   )
 
   lazy val migrations = Seq(
@@ -264,8 +264,8 @@ object ZMessagingDB {
     },
     Migration(110, 111) { db =>
       db.execSQL("ALTER TABLE Messages ADD COLUMN asset_id TEXT DEFAULT null")
-      db.execSQL(RawAssetDao.table.createSql)
-      db.execSQL(InProgressAssetDao.table.createSql)
+      db.execSQL(UploadAssetDao.table.createSql)
+      db.execSQL(DownloadAssetDao.table.createSql)
       db.execSQL(AssetDao.table.createSql)
     }
   )

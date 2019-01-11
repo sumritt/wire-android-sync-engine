@@ -60,7 +60,7 @@ case class LocalSource(uri: URI, sha: Sha256)
 sealed trait RawPreview
 case object RawPreviewNotReady                           extends RawPreview
 case object RawPreviewEmpty                              extends RawPreview
-case class RawPreviewNotUploaded(rawAssetId: RawAssetId) extends RawPreview
+case class RawPreviewNotUploaded(rawAssetId: UploadAssetId) extends RawPreview
 case class RawPreviewUploaded(assetId: AssetId)          extends RawPreview
 
 sealed trait GeneralAsset {
@@ -68,46 +68,46 @@ sealed trait GeneralAsset {
   def mime: Mime
   def name: String
   def size: Long
-  def details: RawAssetDetails
+  def details: UploadAssetDetails
 }
 
-case class RawAsset[+T <: RawAssetDetails](
-    id: RawAssetId,
-    localSource: Option[LocalSource],
-    name: String,
-    sha: Sha256,
-    mime: Mime,
-    preview: RawPreview,
-    uploaded: Long,
-    size: Long,
-    retention: Retention,
-    public: Boolean,
-    encryption: Encryption,
-    encryptionSalt: Option[Salt],
-    details: T,
-    status: AssetUploadStatus,
-    assetId: Option[AssetId]
+case class UploadAsset[+T <: UploadAssetDetails](
+                                                  id: UploadAssetId,
+                                                  localSource: Option[LocalSource],
+                                                  name: String,
+                                                  sha: Sha256,
+                                                  mime: Mime,
+                                                  preview: RawPreview,
+                                                  uploaded: Long,
+                                                  size: Long,
+                                                  retention: Retention,
+                                                  public: Boolean,
+                                                  encryption: Encryption,
+                                                  encryptionSalt: Option[Salt],
+                                                  details: T,
+                                                  status: UploadAssetStatus,
+                                                  assetId: Option[AssetId]
 ) extends GeneralAsset
 
 sealed trait AssetStatus
 object AssetStatus {
-  case object Done extends AssetUploadStatus with AssetDownloadStatus
+  case object Done extends UploadAssetStatus with DownloadAssetStatus
 }
 
-sealed trait AssetUploadStatus extends AssetStatus
-object AssetUploadStatus {
-  case object NotStarted extends AssetUploadStatus
-  case object InProgress extends AssetUploadStatus
-  case object Cancelled  extends AssetUploadStatus
-  case object Failed     extends AssetUploadStatus
+sealed trait UploadAssetStatus extends AssetStatus
+object UploadAssetStatus {
+  case object NotStarted extends UploadAssetStatus
+  case object InProgress extends UploadAssetStatus
+  case object Cancelled  extends UploadAssetStatus
+  case object Failed     extends UploadAssetStatus
 }
 
-sealed trait AssetDownloadStatus extends AssetStatus
-object AssetDownloadStatus {
-  case object NotStarted extends AssetDownloadStatus
-  case object InProgress extends AssetDownloadStatus
-  case object Cancelled  extends AssetDownloadStatus
-  case object Failed     extends AssetDownloadStatus
+sealed trait DownloadAssetStatus extends AssetStatus
+object DownloadAssetStatus {
+  case object NotStarted extends DownloadAssetStatus
+  case object InProgress extends DownloadAssetStatus
+  case object Cancelled  extends DownloadAssetStatus
+  case object Failed     extends DownloadAssetStatus
 }
 
 case class Asset[+T <: AssetDetails](
@@ -125,36 +125,36 @@ case class Asset[+T <: AssetDetails](
     convId: Option[RConvId]
 ) extends GeneralAsset
 
-case class InProgressAsset(
-    id: InProgressAssetId,
-    mime: Mime,
-    name: String,
-    preview: Option[AssetId],
-    details: AssetDetails,
-    downloaded: Long,
-    size: Long,
-    status: AssetDownloadStatus
+case class DownloadAsset(
+                          id: DownloadAssetId,
+                          mime: Mime,
+                          name: String,
+                          preview: Option[AssetId],
+                          details: AssetDetails,
+                          downloaded: Long,
+                          size: Long,
+                          status: DownloadAssetStatus
 ) extends GeneralAsset
 
-object InProgressAsset {
+object DownloadAsset {
 
-  def create(asset: GenericAsset): InProgressAsset = {
-    InProgressAsset(
-      id = InProgressAssetId(),
+  def create(asset: GenericAsset): DownloadAsset = {
+    DownloadAsset(
+      id = DownloadAssetId(),
       mime = Mime(asset.original.mimeType),
       name = asset.original.name,
       preview = if (asset.preview == null) None else Some(AssetId(asset.preview.remote.assetId)),
       details = Asset.extractDetails(Left(asset.original)),
       downloaded = 0,
       size = asset.original.size,
-      status = AssetDownloadStatus.NotStarted
+      status = DownloadAssetStatus.NotStarted
     )
   }
 
 }
 
 object Asset {
-  type RawGeneral = RawAssetDetails
+  type UploadGeneral = UploadAssetDetails
   type NotReady   = DetailsNotReady.type
   type General    = AssetDetails
   type Blob       = BlobDetails.type
@@ -184,7 +184,7 @@ object Asset {
     }
   }
 
-  def create(asset: InProgressAsset, remote: RemoteData): Asset[General] = {
+  def create(asset: DownloadAsset, remote: RemoteData): Asset[General] = {
     Asset(
       id = AssetId(remote.assetId),
       token = if (remote.assetToken.isEmpty) None else Some(AssetToken(remote.assetToken)),
@@ -217,26 +217,26 @@ object Asset {
     )
   }
 
-  def create(assetId: AssetId, token: Option[AssetToken], rawAsset: RawAsset[General]): Asset[General] =
+  def create(assetId: AssetId, token: Option[AssetToken], uploadAsset: UploadAsset[General]): Asset[General] =
     Asset(
       id = assetId,
       token = token,
-      mime = rawAsset.mime,
-      sha = rawAsset.sha,
-      name = rawAsset.name,
-      size = rawAsset.size,
-      encryption = rawAsset.encryption,
-      localSource = rawAsset.localSource,
+      mime = uploadAsset.mime,
+      sha = uploadAsset.sha,
+      name = uploadAsset.name,
+      size = uploadAsset.size,
+      encryption = uploadAsset.encryption,
+      localSource = uploadAsset.localSource,
       preview = None,
-      details = rawAsset.details,
+      details = uploadAsset.details,
       convId = None
     )
 }
 
-sealed trait RawAssetDetails
-case object DetailsNotReady extends RawAssetDetails
+sealed trait UploadAssetDetails
+case object DetailsNotReady extends UploadAssetDetails
 
-sealed trait AssetDetails                                       extends RawAssetDetails
+sealed trait AssetDetails                                       extends UploadAssetDetails
 case object BlobDetails                                         extends AssetDetails
 case class ImageDetails(dimensions: Dim2)                       extends AssetDetails
 case class AudioDetails(duration: Duration, loudness: Loudness) extends AssetDetails

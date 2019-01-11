@@ -26,7 +26,7 @@ import com.waz.model.GenericContent.{Asset, Calling, Cleared, Ephemeral, Knock, 
 import com.waz.model._
 import com.waz.model.nano.Messages
 import com.waz.service.EventScheduler
-import com.waz.service.assets2.{AssetDownloadStatus, AssetService, GeneralAsset, InProgressAsset, Asset => Asset2}
+import com.waz.service.assets2.{DownloadAssetStatus, AssetService, GeneralAsset, DownloadAsset, Asset => Asset2}
 import com.waz.service.conversation.{ConversationsContentUpdater, ConversationsService}
 import com.waz.service.otr.OtrService
 import com.waz.service.otr.VerificationStateUpdater.{ClientAdded, ClientUnverified, MemberAdded, VerificationChange}
@@ -94,7 +94,7 @@ class MessageEventProcessor(selfUserId:          UserId,
     content match {
 
       case asset: Asset if asset.hasUploaded =>
-        val asset2 = Asset2.create(InProgressAsset.create(asset), asset.getUploaded)
+        val asset2 = Asset2.create(DownloadAsset.create(asset), asset.getUploaded)
         val preview = Option(asset.preview).map(Asset2.create)
         verbose(s"Received asset v3: $asset with preview: $preview")
         List((asset2, preview))
@@ -103,7 +103,7 @@ class MessageEventProcessor(selfUserId:          UserId,
         linkPreviews
           .collect { case lp if lp.image != null && lp.image.hasUploaded => lp }
           .map { lp =>
-            val asset = Asset2.create(InProgressAsset.create(lp.image), lp.image.getUploaded)
+            val asset = Asset2.create(DownloadAsset.create(lp.image), lp.image.getUploaded)
             verbose(s"Received link preview asset: $asset")
             (asset, Option.empty[GeneralAsset])
           }
@@ -114,11 +114,11 @@ class MessageEventProcessor(selfUserId:          UserId,
 
       case asset: Asset if asset.getStatusCase == Messages.Asset.CANCELLED =>
         verbose(s"Uploader cancelled asset: $id")
-        val asset2 = InProgressAsset.create(asset)
+        val asset2 = DownloadAsset.create(asset)
         List((asset2, None))
 
       case asset: Asset =>
-        val asset2 = InProgressAsset.create(asset)
+        val asset2 = DownloadAsset.create(asset)
         val preview = Option(asset.preview).map(Asset2.create)
         verbose(s"Received asset without remote data - we will expect another update: $asset")
         List((asset2, preview))
@@ -220,7 +220,7 @@ class MessageEventProcessor(selfUserId:          UserId,
   private def deleteCancelled(modifications: Seq[EventModifications]): Future[Unit] = {
     val toRemove = modifications.filter { m =>
       m.assetWithPreview.headOption match {
-        case Some((asset: InProgressAsset, _)) => asset.status == AssetDownloadStatus.Cancelled
+        case Some((asset: DownloadAsset, _)) => asset.status == DownloadAssetStatus.Cancelled
         case _ => false
       }
     }
