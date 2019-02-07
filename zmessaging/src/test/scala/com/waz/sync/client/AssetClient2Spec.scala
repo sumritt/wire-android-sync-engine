@@ -28,7 +28,10 @@ import com.waz.service.assets2.{Asset, BlobDetails, NoEncryption}
 import com.waz.sync.client.AssetClient.FileWithSha
 import com.waz.sync.client.AssetClient2.{AssetContent, Metadata, Retention, UploadResponse2}
 import com.waz.utils.{IoUtils, returning}
+import com.waz.znet2.http.HttpClient
+import com.waz.znet2.http.HttpClient.{Progress, ProgressCallback}
 
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.Future
 import scala.util.Random
 
@@ -37,7 +40,7 @@ class AssetClient2Spec extends ZIntegrationSpec with AuthenticationConfig {
 
   private lazy val assetClient = new AssetClient2Impl()
 
-  private val testAssetContent = returning(Array.ofDim[Byte](1024))(Random.nextBytes)
+  private val testAssetContent = returning(Array.ofDim[Byte](1024 * 1024 * 2))(Random.nextBytes)
   private val testAssetContentMd5 = MD5(IoUtils.md5(new ByteArrayInputStream(testAssetContent)))
   private val testAssetMetadata = Metadata(retention = Retention.Volatile)
   private val testAssetMime = Mime.Default
@@ -61,47 +64,65 @@ class AssetClient2Spec extends ZIntegrationSpec with AuthenticationConfig {
 
   feature("Assets http requests") {
 
-    scenario("upload asset") {
-      for {
-        result <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
-        _ = verbose(s"Uploading asset result: $result")
-      } yield result shouldBe an[Right[ErrorResponse, UploadResponse2]]
-    }
+//    scenario("upload asset") {
+//      for {
+//        result <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
+//        _ = verbose(s"Uploading asset result: $result")
+//      } yield result shouldBe an[Right[ErrorResponse, UploadResponse2]]
+//    }
+//
+//    scenario("upload and load asset") {
+//      for {
+//        uploadResult <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
+//        _ = verbose(s"Uploading asset result: $uploadResult")
+//        uploadResponse = uploadResult.right.get
+//        asset = createBlobAsset(uploadResponse)
+//        loadResult <- assetClient.loadAssetContent(asset, callback = None)
+//      } yield {
+//        loadResult shouldBe an[Right[ErrorResponse, FileWithSha]]
+//        loadResult.right.get.sha256 shouldBe asset.sha
+//      }
+//    }
+//
+//    scenario("upload and delete asset") {
+//      for {
+//        uploadResult <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
+//        _ = verbose(s"Uploading asset result: $uploadResult")
+//        uploadResponse = uploadResult.right.get
+//        asset = createBlobAsset(uploadResponse)
+//        deleteResult <- assetClient.deleteAsset(asset.id)
+//        _ = verbose(s"Deleting asset result: $deleteResult")
+//      } yield {
+//        deleteResult shouldBe an[Right[ErrorResponse, Boolean]]
+//        deleteResult.right.get shouldBe true
+//      }
+//    }
+//
+//    scenario("delete not existed asset") {
+//      for {
+//        deleteResult <- assetClient.deleteAsset(AssetId("3-3-cff20a61-3dd5-4fcf-b612-dc650a9ca245"))
+//        _ = verbose(s"Deleting asset result: $deleteResult")
+//      } yield {
+//        deleteResult shouldBe an[Right[ErrorResponse, Boolean]]
+//        deleteResult.right.get shouldBe false
+//      }
+//    }
 
-    scenario("upload and load asset") {
+    scenario("upload and delete asset check progress") {
+      var progresses = ArrayBuffer.empty[Progress]
       for {
-        uploadResult <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
-        _ = verbose(s"Uploading asset result: $uploadResult")
-        uploadResponse = uploadResult.right.get
-        asset = createBlobAsset(uploadResponse)
-        loadResult <- assetClient.loadAssetContent(asset, callback = None)
-      } yield {
-        loadResult shouldBe an[Right[ErrorResponse, FileWithSha]]
-        loadResult.right.get.sha256 shouldBe asset.sha
-      }
-    }
-
-    scenario("upload and delete asset") {
-      for {
-        uploadResult <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = None)
+        uploadResult <- assetClient.uploadAsset(testAssetMetadata, testRawAsset, callback = Some(p => {
+          progresses.append(p)
+        }))
         _ = verbose(s"Uploading asset result: $uploadResult")
         uploadResponse = uploadResult.right.get
         asset = createBlobAsset(uploadResponse)
         deleteResult <- assetClient.deleteAsset(asset.id)
         _ = verbose(s"Deleting asset result: $deleteResult")
       } yield {
+        println(progresses)
         deleteResult shouldBe an[Right[ErrorResponse, Boolean]]
         deleteResult.right.get shouldBe true
-      }
-    }
-
-    scenario("delete not existed asset") {
-      for {
-        deleteResult <- assetClient.deleteAsset(AssetId("3-3-cff20a61-3dd5-4fcf-b612-dc650a9ca245"))
-        _ = verbose(s"Deleting asset result: $deleteResult")
-      } yield {
-        deleteResult shouldBe an[Right[ErrorResponse, Boolean]]
-        deleteResult.right.get shouldBe false
       }
     }
 

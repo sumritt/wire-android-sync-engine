@@ -249,7 +249,9 @@ class AssetServiceImpl(assetsStorage: AssetStorage,
         Some(asset.size)
       )
       val uploadCallback: ProgressCallback = (p: Progress) => {
-        uploadAssetStorage.save(asset.copy(uploaded = p.progress))
+//        val metadataSize: Long = p.total.map(_ - asset.size).getOrElse(0L)
+//        val uploaded = 0L max (p.progress - metadataSize)
+        uploadAssetStorage.update(asset.id, _.copy(uploaded = p.progress))
         ()
       }
       assetClient.uploadAsset(metadata, content, Some(uploadCallback))
