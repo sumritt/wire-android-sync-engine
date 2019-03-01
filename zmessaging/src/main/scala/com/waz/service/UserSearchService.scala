@@ -27,7 +27,7 @@ import com.waz.service.ZMessaging.clock
 import com.waz.service.conversation.{ConversationsService, ConversationsUiService}
 import com.waz.service.teams.TeamsService
 import com.waz.sync.SyncServiceHandle
-import com.waz.sync.client.UserSearchClient.UserSearchEntry
+import com.waz.sync.client.UserSearchClient.UserSearchResponse
 import com.waz.threading.{CancellableFuture, Threading}
 import com.waz.utils._
 import com.waz.utils.events._
@@ -232,19 +232,21 @@ class UserSearchService(selfUserId:           UserId,
     } yield SearchResults(top, local, convs, dir)
   }
 
-  def updateSearchResults(query: SearchQuery, results: Seq[UserSearchEntry]) = {
+  def updateSearchResults(query: SearchQuery, results: UserSearchResponse) = {
     def updating(ids: Vector[UserId])(cached: SearchQueryCache) = cached.copy(query, clock.instant(), if (ids.nonEmpty || cached.entries.isEmpty) Some(ids) else cached.entries)
 
+    val users = unpack(results)
+
     for {
-      updated <- userService.updateUsers(results)
+      updated <- userService.updateUsers(users)
       _       <- userService.syncIfNeeded(updated.map(_.id), Duration.Zero)
-      ids     = results.map(_.id)(breakOut): Vector[UserId]
-      _       = verbose(l"updateSearchResults($query, ${results.map(_.handle)})")
+      ids     = users.map(_.id)(breakOut): Vector[UserId]
+      _       = verbose(l"updateSearchResults($query, ${users.map(_.handle)})")
       _       <- queryCache.updateOrCreate(query, updating(ids), SearchQueryCache(query, clock.instant(), Some(ids)))
     } yield ()
 
     query match {
-      case RecommendedHandle(handle) if !results.map(_.handle).exists(_.exactMatchQuery(handle)) =>
+      case RecommendedHandle(handle) if !users.map(_.handle).exists(_.exactMatchQuery(handle)) =>
         debug(l"exact match requested")
         sync.exactMatchHandle(Handle(Handle.stripSymbol(handle)))
       case _ =>
@@ -331,4 +333,23 @@ object UserSearchService {
 
   val MinCommonConnections = 4
   val MaxTopPeople = 10
+
+  /**
+    * Model object extracted from `UserSearchResponse`.
+    */
+  case class UserSearchEntry(id: UserId, name: Name, colorId: Option[Int], handle: Handle)
+
+  object UserSearchEntry {
+    def apply(searchUser: UserSearchResponse.User): UserSearchEntry = {
+      import searchUser._
+      UserSearchEntry(UserId(id), Name(name), accent_id, Handle(handle))
+    }
+  }
+
+  /**
+    * Extracts `UserSearchEntry` objects contained within the given search response.
+    */
+  def unpack(response: UserSearchResponse): Seq[UserSearchEntry] = {
+    response.documents.map(UserSearchEntry.apply)
+  }
 }
