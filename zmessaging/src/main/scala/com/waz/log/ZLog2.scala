@@ -60,19 +60,32 @@ import scala.util.Try
 
 object ZLog2 {
 
-  trait LogShow[-T] {
-    def showSafe(value: T): String
-    def showUnsafe(value: T): String = showSafe(value)
-
-    def contramap[B](f: B => T): LogShow[B] = LogShow.create[B](f andThen showSafe, f andThen showUnsafe)
-  }
-
-  //Used to mark traits that are safe to print their natural toString implementation
+  /**
+    * Use this trait to mark types whose natural `toString` implementations are
+    * considered safe. A corresponding `LogShow` will be generated that will use
+    * `toString` to show in both safe and unsafe contexts.
+    */
   trait SafeToLog
+
   object SafeToLog {
     implicit val SafeToLogLogShow: LogShow[SafeToLog] = LogShow.logShowWithToString
   }
 
+  /**
+    * A `LogShow` of type `T` is a type class that describes how an object of
+    * that type will appear in logs depending on certain contexts. In essence,
+    * the `showSafe` method is used for public logging, and `showUnsafe` is
+    * used in internal and dev logs.
+    *
+    * Only types that have a corresponding `LogShow` are permitted to be logged.
+    */
+  trait LogShow[-T] {
+    def showSafe(value: T): String
+    def showUnsafe(value: T): String = showSafe(value)
+
+    def contramap[B](f: B => T): LogShow[B] =
+      LogShow.create[B](f andThen showSafe, f andThen showUnsafe)
+  }
 
   object LogShow {
     import shapeless._
@@ -134,7 +147,8 @@ object ZLog2 {
       override def showUnsafe(v: T): String = s"${name(v)}(${v.toString})"
     }
 
-    //primitives
+    // Primitives //////////////////////////////////////////////////////////////
+
     implicit val BooleanLogShow:     LogShow[Boolean]        = logShowWithToString
     implicit val ByteLogShow:        LogShow[Byte]           = logShowWithToString
     implicit val ShortLogShow:       LogShow[Short]          = logShowWithToString
@@ -150,21 +164,24 @@ object ZLog2 {
     implicit val BPDurationShow:     LogShow[bp.Duration]    = logShowWithToString
     implicit val ThrowableShow:      LogShow[Throwable]      = logShowWithToString
     implicit val ShowStringLogShow:  LogShow[ShowString]     = logShowWithToString
-
     implicit val RedactedStringShow: LogShow[RedactedString] = create(_ => "<redacted>", _.value)
 
     implicit val Sha256LogShow: LogShow[Sha256] = create(_.hexString, _.str)
 
     implicit val enumShow: LogShow[Enum[_]] = LogShow.create((enumValue: Enum[_]) => enumValue.name())
 
-    implicit val JSONObjectLogShow:  LogShow[JSONObject] = logShowWithHash
+    // Common Types ////////////////////////////////////////////////////////////
 
     //TODO how much of a file/uri can we show in prod?
-    //common types
-    implicit val FileLogShow: LogShow[File] = create(_ => "<file>", _.getAbsolutePath)
-    implicit val AUriLogShow: LogShow[Uri]  = create(_ => "<uri>", _.toString)
-    implicit val UriLogShow:  LogShow[URI]  = create(_ => "<uri>", _.toString)
+
+    implicit val FileLogShow: LogShow[File]         = create(_ => "<file>", _.getAbsolutePath)
+    implicit val AUriLogShow: LogShow[Uri]          = create(_ => "<uri>", _.toString)
+    implicit val UriLogShow:  LogShow[URI]          = create(_ => "<uri>", _.toString)
     implicit val WUriLogShow: LogShow[wrappers.URI] = create(_ => "<uri>", _.toString)
+
+    implicit val JSONObjectLogShow:  LogShow[JSONObject] = logShowWithHash
+
+    // Collections /////////////////////////////////////////////////////////////
 
     implicit def traversableShow[T](implicit show: LogShow[T]): LogShow[Traversable[T]] = {
       def createString(xs: Traversable[T], toString: T => String, elemsToPrint: Int = 3): String = {
@@ -201,7 +218,9 @@ object ZLog2 {
         t => (showA.showUnsafe(t._1), showB.showUnsafe(t._2), showC.showUnsafe(t._3)).toString()
       )
 
-    //wire types
+
+    // Wire Types //////////////////////////////////////////////////////////////
+
     implicit val UidShow:        LogShow[Uid]        = logShowWithHash
     implicit val UserIdShow:     LogShow[UserId]     = logShowWithHash
     implicit val AssetIdShow:    LogShow[AssetId]    = logShowWithHash
@@ -214,6 +233,7 @@ object ZLog2 {
     implicit val TeamIdShow:     LogShow[TeamId]     = logShowWithHash
     implicit val NotIdShow:      LogShow[NotId]      = logShowWithHash
     implicit val IntegrationIdLogShow: LogShow[IntegrationId] = logShowWithHash
+
     implicit val CacheKeyShow:   LogShow[CacheKey]   = logShowWithHash
     implicit val AssetTokenShow: LogShow[AssetToken] = logShowWithHash
 
