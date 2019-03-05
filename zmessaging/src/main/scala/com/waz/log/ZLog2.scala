@@ -34,8 +34,8 @@ import com.waz.model.ManagedBy.ManagedBy
 import com.waz.model.messages.media.{ArtistData, TrackData}
 import com.waz.model.{SSOId, _}
 import com.waz.model.otr.{Client, ClientId, UserClients}
-import com.waz.model.sync.{ReceiptType,SyncCommand, SyncJob, SyncRequest}
-import com.waz.service.PropertyKey
+import com.waz.model.sync.{ReceiptType, SyncCommand, SyncJob, SyncRequest}
+import com.waz.service.{PropertyKey, SearchResults}
 import com.waz.service.assets.AssetService.RawAssetInput
 import com.waz.service.assets.AssetService.RawAssetInput.{BitmapInput, ByteInput, UriInput, WireAssetInput}
 import com.waz.service.assets.{GlobalRecordAndPlayService, Player}
@@ -418,6 +418,11 @@ object ZLog2 {
       }
 
     implicit val ErrorResponseLogShow: LogShow[ErrorResponse] = LogShow.create(_.toString)
+
+    implicit val SearchResultsLogShow: LogShow[SearchResults] =
+      LogShow.createFrom { r =>
+        l"SearchResults(top: ${r.top.size}, local: ${r.local.size}, convs: ${r.convs.size}, dir: ${r.dir.size})"
+      }
 
     // Global Record and Play Service
 
