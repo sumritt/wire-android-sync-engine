@@ -138,9 +138,9 @@ object ZLog2 {
         }
       }
 
-    private[log] def logShowWithToString[T]: LogShow[T] = create(_.toString)
+    def logShowWithToString[T]: LogShow[T] = create(_.toString)
 
-    private[log] def logShowWithHash[T]: LogShow[T] = new LogShow[T] {
+    def logShowWithHash[T]: LogShow[T] = new LogShow[T] {
       private def name(v: T) = v.getClass.getSimpleName
 
       override def showSafe(v: T): String = s"${name(v)}(${sha2(v.toString).take(9)})"
