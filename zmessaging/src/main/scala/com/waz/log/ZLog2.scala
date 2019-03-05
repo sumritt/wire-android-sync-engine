@@ -425,6 +425,12 @@ object ZLog2 {
         l"SearchResults(top: ${r.top.size}, local: ${r.local.size}, convs: ${r.convs.size}, dir: ${r.dir.size})"
       }
 
+    implicit val IntegrationDataLogShow: LogShow[IntegrationData] =
+      LogShow.createFrom { d =>
+        l"IntegrationData(id: ${d.id}, provider: ${d.provider}, name: ${redactedString(d.name)}, asset: ${d.asset}, enabled: ${d.enabled}"
+      }
+
+
     // Global Record and Play Service
 
     implicit val StateLogShow: LogShow[GlobalRecordAndPlayService.State] =
