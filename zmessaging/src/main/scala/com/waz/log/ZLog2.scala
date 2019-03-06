@@ -26,6 +26,7 @@ import com.waz.ZLog.LogTag
 import com.waz.api.impl.ErrorResponse
 import com.waz.api.{MessageContent => _, _}
 import com.waz.cache2.CacheService.{AES_CBC_Encryption, Encryption, NoEncryption}
+import com.waz.content.MessagesCursor
 import com.waz.content.Preferences.PrefKey
 import com.waz.log.InternalLog.LogLevel.{Debug, Error, Info, Verbose, Warn}
 import com.waz.model.AccountData.Password
@@ -249,6 +250,8 @@ object ZLog2 {
     implicit val PushTokenShow:   LogShow[PushToken]   = logShowWithHash
     implicit val SearchQueryShow: LogShow[SearchQuery] = logShowWithHash
     implicit val AESKeyShow:      LogShow[AESKey]      = logShowWithHash
+
+    implicit val MessagesCursorLogShow: LogShow[MessagesCursor] = logShowWithHash
 
     implicit val PrefKeyLogShow: LogShow[PrefKey[_]]      = logShowWithToString
     implicit val PropertyKeyLogShow: LogShow[PropertyKey] = logShowWithToString
