@@ -251,14 +251,16 @@ object ZLog2 {
     implicit val SearchQueryShow: LogShow[SearchQuery] = logShowWithHash
     implicit val AESKeyShow:      LogShow[AESKey]      = logShowWithHash
 
-    implicit val MessagesCursorLogShow: LogShow[MessagesCursor] = logShowWithHash
-
     implicit val PrefKeyLogShow: LogShow[PrefKey[_]]      = logShowWithToString
     implicit val PropertyKeyLogShow: LogShow[PropertyKey] = logShowWithToString
     implicit val ReadReceiptSettingsShow: LogShow[ReadReceiptSettings] = logShowWithToString
 
     implicit val SSOIdShow: LogShow[SSOId] = create(id => s"SSOId(subject: ${sha2(id.subject)}, tenant:${sha2(id.tenant)})")
     implicit val ManagedByShow: LogShow[ManagedBy] = create(id => s"ManagedBy($id)")
+
+    implicit val MessagesCursorLogShow: LogShow[MessagesCursor] = logShowWithHash
+
+    implicit val UserFieldLogShow: LogShow[UserField] = logShowWithHash
 
     implicit val RawAssetInputLogShow: LogShow[RawAssetInput] =
       createFrom {
