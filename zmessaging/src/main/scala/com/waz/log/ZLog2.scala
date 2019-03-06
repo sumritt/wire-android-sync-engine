@@ -435,6 +435,11 @@ object ZLog2 {
         l"IntegrationData(id: ${d.id}, provider: ${d.provider}, name: ${redactedString(d.name)}, asset: ${d.asset}, enabled: ${d.enabled}"
       }
 
+    implicit val TypeFilterLogShow: LogShow[TypeFilter] =
+      LogShow.createFrom { f =>
+        l"TypeFilter(msgType: ${f.msgType}, limit: ${f.limit}"
+      }
+
 
     // Global Record and Play Service
 
