@@ -197,9 +197,12 @@ class TeamsServiceImpl(selfUser:           UserId,
   }
 
   private def onMembersJoined(members: Set[UserId]) = {
-    verbose(l"onTeamMembersJoined: members: $members")
+    verbose(l"SEARCH onTeamMembersJoined: members: $members")
     for {
       _ <- sync.syncUsers(members).flatMap(syncRequestService.await)
+      _ = verbose(l"SEARCH before sync team")
+      _ <- sync.syncTeam().flatMap(syncRequestService.await)
+      _ = verbose(l"SEARCH after sync team")
       _ <- userStorage.updateAll2(members, _.copy(teamId = teamId, deleted = false))
     } yield {}
   }
