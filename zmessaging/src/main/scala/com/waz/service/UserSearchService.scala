@@ -82,14 +82,14 @@ class UserSearchService(selfUserId:           UserId,
     lazy val knownUsers = membersStorage.getByUsers(searchResults.map(_.id).toSet).map(_.map(_.userId).toSet)
     isPartner.flatMap {
       case true if teamId.isDefined =>
-        ZLog.verbose(s"SEARCH filterForPartner($query, ${searchResults.map(_.getDisplayName)}) with partner = true and teamId")
+        ZLog.verbose(s"SEARCH filterForPartner1 Q: $query, RES: ${searchResults.map(_.getDisplayName)}) with partner = true and teamId")
         knownUsers.map { knownUsersIds =>
           val res = searchResults.filter(u => knownUsersIds.contains(u.id))
           ZLog.verbose(s"SEARCH after filtering: ${res.map(_.getDisplayName)})")
           res
         }
       case false if teamId.isDefined =>
-        ZLog.verbose(s"SEARCH filterForPartner($query, ${searchResults.map(_.getDisplayName)}) with partner = false and teamId")
+        ZLog.verbose(s"SEARCH filterForPartner2 Q: $query, RES: ${searchResults.map(_.getDisplayName)}) with partner = false and teamId")
         knownUsers.map { knownUsersIds =>
           val res = searchResults.filter { u =>
             ZLog.verbose(s"SEARCH u: ${(u.id, u.getDisplayName)}")
@@ -318,7 +318,7 @@ class UserSearchService(selfUserId:           UserId,
     Future.successful({})
   }
 
-  private def searchUserData(query: SearchQuery): Signal[IndexedSeq[UserData]] = signalMap.getOrElseUpdate(query, returning( startNewSearch(query) ) { _ =>
+  def searchUserData(query: SearchQuery): Signal[IndexedSeq[UserData]] = signalMap.getOrElseUpdate(query, returning( startNewSearch(query) ) { _ =>
     CancellableFuture.delay(cacheRefreshInterval).map { _ =>
       signalMap.remove(query)
       queryCache.remove(query)

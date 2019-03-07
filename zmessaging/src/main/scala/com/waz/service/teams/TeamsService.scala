@@ -108,12 +108,7 @@ class TeamsServiceImpl(selfUser:           UserId,
         case None    => userStorage.getByTeam(Set(tId))
       }
 
-      def userMatches(data: UserData) = data.teamId == teamId && (query match {
-        case Some(q) =>
-          if (handleOnly) data.handle.map(_.string).contains(q.asciiRepresentation)
-          else q.isAtTheStartOfAnyWordIn(data.searchKey)
-        case _ => true
-      })
+      def userMatches(data: UserData) = data.teamId == teamId && data.matchesQuery(query, handleOnly)
 
       new AggregatingSignal[Seq[ContentChange[UserId, UserData]], Set[UserData]](changesStream, load, { (current, changes) =>
         val added = changes.collect {
